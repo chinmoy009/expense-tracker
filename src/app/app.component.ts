@@ -14,12 +14,13 @@ import { CurrencySelectorComponent } from './components/currency-selector/curren
     <div class="app-container">
         <header>
             <div class="user-welcome">
-                <span class="greeting">Good Evening,</span>
                 <h1 class="username" *ngIf="user$ | async as user; else guest">
-                    {{ user.getBasicProfile().getGivenName() }}
+                    <span class="greeting" style="font-weight: 300; font-size: 0.8em; opacity: 0.8;">Hello,</span> {{ user.getBasicProfile().getGivenName() }}
                 </h1>
                 <ng-template #guest>
-                    <h1 class="username">Guest</h1>
+                    <h1 class="username">
+                        <span class="greeting" style="font-weight: 300; font-size: 0.8em; opacity: 0.8;">Hello,</span> Guest
+                    </h1>
                 </ng-template>
             </div>
             

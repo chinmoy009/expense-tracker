@@ -99,17 +99,49 @@ import { SettingsService } from '../../services/settings.service';
         border-top: 1px solid var(--glass-border);
         transform: translateY(100%);
         transition: transform 0.3s cubic-bezier(0.19, 1, 0.22, 1);
+        
+        /* Responsive Layout */
+        max-height: 90vh;
+        display: flex;
+        flex-direction: column;
     }
     .modal-overlay.active .glass-modal { transform: translateY(0); }
-    .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
+    
+    .modal-header { 
+        display: flex; 
+        justify-content: space-between; 
+        align-items: center; 
+        margin-bottom: 20px;
+        flex-shrink: 0; /* Prevent header from shrinking */
+    }
     .close-modal { background: none; border: none; color: var(--text-secondary); font-size: 1.5rem; cursor: pointer; }
-    .input-group { margin-bottom: 25px; }
+    
+    /* Scrollable Form */
+    form {
+        flex: 1;
+        overflow-y: auto;
+        padding-right: 5px; /* Avoid scrollbar overlap */
+        display: flex;
+        flex-direction: column;
+    }
+    /* Custom Scrollbar */
+    form::-webkit-scrollbar { width: 4px; }
+    form::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); }
+    form::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 2px; }
+
+    .input-group { margin-bottom: 20px; }
     .input-group label { display: block; color: var(--text-secondary); margin-bottom: 10px; font-size: 0.9rem; }
     .amount-input-wrapper { display: flex; align-items: center; border-bottom: 2px solid var(--glass-border); padding-bottom: 10px; }
     .currency { font-size: 2rem; color: var(--accent-primary); margin-right: 10px; }
     .amount-input { background: none; border: none; color: white; font-size: 2.5rem; font-weight: 700; width: 100%; outline: none; font-family: var(--font-main); }
     .text-input { width: 100%; background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); padding: 15px; border-radius: 15px; color: white; font-family: var(--font-main); outline: none; }
-    .save-btn { width: 100%; padding: 18px; background: var(--accent-primary); border: none; border-radius: 15px; color: white; font-size: 1.1rem; font-weight: 600; cursor: pointer; margin-top: 10px; box-shadow: 0 5px 20px rgba(247, 37, 133, 0.3); }
+    
+    .save-btn { 
+        width: 100%; padding: 18px; background: var(--accent-primary); border: none; border-radius: 15px; 
+        color: white; font-size: 1.1rem; font-weight: 600; cursor: pointer; margin-top: auto; /* Push to bottom if space allows */
+        box-shadow: 0 5px 20px rgba(247, 37, 133, 0.3); 
+        flex-shrink: 0;
+    }
     .save-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
     /* Category Specific */
@@ -118,7 +150,18 @@ import { SettingsService } from '../../services/settings.service';
     .crumb:hover { color: white; }
     .crumb.root { color: var(--accent-primary); }
     
-    .category-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .category-grid { 
+        display: grid; 
+        grid-template-columns: repeat(3, 1fr); 
+        gap: 10px; 
+        max-height: 250px; /* Limit height */
+        overflow-y: auto;
+        padding-right: 5px;
+    }
+    .category-grid::-webkit-scrollbar { width: 4px; }
+    .category-grid::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); }
+    .category-grid::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 2px; }
+
     .cat-btn {
         background: rgba(255,255,255,0.05); border: 1px solid transparent; color: var(--text-secondary);
         padding: 12px 8px; border-radius: 12px; display: flex; flex-direction: column; align-items: center; gap: 5px; 
@@ -128,6 +171,20 @@ import { SettingsService } from '../../services/settings.service';
     .cat-btn.active { background: rgba(76, 201, 240, 0.1); border-color: var(--accent-secondary); color: var(--accent-secondary); }
     .small-icon { font-size: 0.7rem; position: absolute; right: 5px; bottom: 5px; opacity: 0.5; }
     .no-cats { color: var(--text-secondary); font-style: italic; text-align: center; padding: 10px; }
+
+    /* Mobile Adjustments */
+    @media (max-width: 480px) {
+        .glass-modal {
+            padding: 20px;
+            max-height: 85vh; /* Slightly smaller on mobile */
+        }
+        .category-grid {
+            grid-template-columns: repeat(2, 1fr); /* 2 columns on mobile */
+            max-height: 200px;
+        }
+        .amount-input { font-size: 2rem; }
+        .save-btn { padding: 15px; }
+    }
   `]
 })
 export class AddExpenseModalComponent implements OnInit {
