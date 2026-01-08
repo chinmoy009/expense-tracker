@@ -21,8 +21,9 @@ import { SettingsService } from '../../services/settings.service';
                     <label>Amount</label>
                     <div class="amount-input-wrapper">
                         <span class="currency">{{ currencySymbol }}</span>
-                        <input type="number" [(ngModel)]="amount" name="amount" placeholder="0.00" class="amount-input" required autoFocus>
+                        <input type="text" [(ngModel)]="amountInput" name="amount" placeholder="0.00" class="amount-input" required autoFocus>
                     </div>
+                    <div *ngIf="formulaError" class="error-msg">{{ formulaError }}</div>
                 </div>
 
                 <div class="input-group">
@@ -65,7 +66,7 @@ import { SettingsService } from '../../services/settings.service';
                     <input type="text" [(ngModel)]="note" name="note" placeholder="What was it for?" class="text-input">
                 </div>
 
-                <button type="submit" class="save-btn" [disabled]="!amount || !selectedCategory || !date">
+                <button type="submit" class="save-btn" [disabled]="!amountInput || !selectedCategory || !date">
                     {{ editMode ? 'Update Expense' : 'Save Expense' }}
                 </button>
             </form>
@@ -129,6 +130,8 @@ import { SettingsService } from '../../services/settings.service';
     form::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); }
     form::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 2px; }
 
+    .error-msg { color: var(--accent-danger); font-size: 0.8rem; margin-top: 5px; }
+
     .input-group { margin-bottom: 20px; }
     .input-group label { display: block; color: var(--text-secondary); margin-bottom: 10px; font-size: 0.9rem; }
     .amount-input-wrapper { display: flex; align-items: center; border-bottom: 2px solid var(--glass-border); padding-bottom: 10px; }
@@ -191,7 +194,8 @@ export class AddExpenseModalComponent implements OnInit {
   @Output() closeEvent = new EventEmitter<void>();
   isOpen = false;
 
-  amount: number | null = null;
+  amountInput: string = '';
+  formulaError: string | null = null;
   note: string = '';
   date: string = new Date().toISOString().split('T')[0];
   currencySymbol: string = '$';
@@ -228,7 +232,7 @@ export class AddExpenseModalComponent implements OnInit {
     if (expenseToEdit) {
       this.editMode = true;
       this.editingId = expenseToEdit.id;
-      this.amount = expenseToEdit.amount;
+      this.amountInput = expenseToEdit.amount.toString();
       this.note = expenseToEdit.note;
       this.date = expenseToEdit.date;
       this.selectedCategory = expenseToEdit.category;
@@ -256,7 +260,8 @@ export class AddExpenseModalComponent implements OnInit {
   resetForm() {
     this.editMode = false;
     this.editingId = null;
-    this.amount = null;
+    this.amountInput = '';
+    this.formulaError = null;
     this.note = '';
     this.date = new Date().toISOString().split('T')[0];
     this.resetCategory();
@@ -288,18 +293,103 @@ export class AddExpenseModalComponent implements OnInit {
     this.selectedCategory = null;
   }
 
+  evaluateFormula(input: string): number | null {
+    if (!input.startsWith('=')) {
+      const num = Number(input);
+      return isNaN(num) ? null : num;
+    }
+
+    const formula = input.substring(1).replace(/\s+/g, '');
+    try {
+      // Basic expression parser using a safe approach
+      // Supports +, -, *, /, ()
+      return this.parseExpression(formula);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  private parseExpression(str: string): number {
+    let pos = 0;
+
+    const parsePrimary = (): number => {
+      if (str[pos] === '(') {
+        pos++; // Skip (
+        const val = parseAddSub();
+        if (str[pos] !== ')') throw new Error('Unbalanced parentheses');
+        pos++; // Skip )
+        return val;
+      }
+
+      const start = pos;
+      if (str[pos] === '-') pos++;
+      while (pos < str.length && /[0-9.]/.test(str[pos])) pos++;
+      const numStr = str.substring(start, pos);
+      const val = parseFloat(numStr);
+      if (isNaN(val)) throw new Error('Invalid number');
+      return val;
+    };
+
+    const parseMulDiv = (): number => {
+      let val = parsePrimary();
+      while (pos < str.length && (str[pos] === '*' || str[pos] === '/')) {
+        const op = str[pos++];
+        const next = parsePrimary();
+        if (op === '*') val *= next;
+        else {
+          if (next === 0) throw new Error('Division by zero');
+          val /= next;
+        }
+      }
+      return val;
+    };
+
+    const parseAddSub = (): number => {
+      let val = parseMulDiv();
+      while (pos < str.length && (str[pos] === '+' || str[pos] === '-')) {
+        const op = str[pos++];
+        const next = parseMulDiv();
+        if (op === '+') val += next;
+        else val -= next;
+      }
+      return val;
+    };
+
+    const result = parseAddSub();
+    if (pos < str.length) throw new Error('Incomplete expression');
+    return result;
+  }
+
   onSubmit() {
-    if (this.amount && this.selectedCategory && this.date) {
+    this.formulaError = null;
+    const evaluatedAmount = this.evaluateFormula(this.amountInput);
+
+    if (evaluatedAmount === null) {
+      this.formulaError = 'Invalid amount or formula';
+      return;
+    }
+
+    if (evaluatedAmount <= 0) {
+      this.formulaError = 'Amount must be greater than 0';
+      return;
+    }
+
+    if (this.selectedCategory && this.date) {
       if (this.editMode && this.editingId) {
         this.expenseService.updateExpense({
           id: this.editingId,
-          amount: this.amount,
+          amount: evaluatedAmount,
           category: this.selectedCategory,
           note: this.note,
           date: this.date
         });
       } else {
-        this.expenseService.addExpense(this.amount, this.selectedCategory, this.note, this.date);
+        this.expenseService.addExpense({
+          amount: evaluatedAmount,
+          category: this.selectedCategory,
+          note: this.note,
+          date: this.date
+        });
       }
       this.closeModal();
     }

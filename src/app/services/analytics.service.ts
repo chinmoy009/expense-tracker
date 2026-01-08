@@ -10,6 +10,7 @@ export interface FilterState {
   month: number | null; // 0-11
   year: number | null;
   categoryId: string | null;
+  specificDate: string | null;
 }
 
 export interface AnalyticsResult {
@@ -28,7 +29,8 @@ export class AnalyticsService {
     endDate: null,
     month: new Date().getMonth(),
     year: new Date().getFullYear(),
-    categoryId: null
+    categoryId: null,
+    specificDate: null
   });
 
   filter$ = this.filterSubject.asObservable();
@@ -59,8 +61,11 @@ export class AnalyticsService {
       if (filter.startDate && date < filter.startDate) return false;
       if (filter.endDate && date > filter.endDate) return false;
 
-      // Month/Year (if no specific range)
-      if (!filter.startDate && !filter.endDate) {
+      // Specific Date Priority
+      if (filter.specificDate) {
+        if (e.date.split('T')[0] !== filter.specificDate) return false;
+      } else if (!filter.startDate && !filter.endDate) {
+        // Month/Year (if no specific range or date)
         if (filter.year !== null && date.getFullYear() !== filter.year) return false;
         if (filter.month !== null && date.getMonth() !== filter.month) return false;
       }

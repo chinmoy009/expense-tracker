@@ -1,14 +1,15 @@
 import { Injectable } from '@angular/core';
 import { BehaviorSubject } from 'rxjs';
-import { GoogleApiService } from './google-api.service';
 import { SheetsService } from './sheets.service';
+import { GoogleApiService } from './google-api.service';
 
 export interface Expense {
   id: number;
-  amount: number;
-  category: string;
-  note: string;
   date: string;
+  category: string;
+  amount: number;
+  note: string;
+  bankId?: string;
 }
 
 @Injectable({
@@ -17,68 +18,45 @@ export interface Expense {
 export class ExpenseService {
   private expensesSubject = new BehaviorSubject<Expense[]>([]);
   expenses$ = this.expensesSubject.asObservable();
-
   private isGoogleAuthenticated = false;
 
   constructor(
-    private googleApi: GoogleApiService,
-    private sheetsService: SheetsService
+    private sheetsService: SheetsService,
+    private googleApi: GoogleApiService
   ) {
-    this.init();
-  }
-
-  private init() {
-    // Load from LocalStorage initially
-    this.loadFromLocalStorage();
-
-    // Subscribe to Auth changes
     this.googleApi.user$.subscribe(user => {
       this.isGoogleAuthenticated = !!user;
-      if (this.isGoogleAuthenticated) {
-        this.loadFromSheets();
-      } else {
-        this.loadFromLocalStorage();
-      }
+      this.loadExpenses();
     });
   }
 
-  private loadFromLocalStorage() {
-    const data = localStorage.getItem('lumina_expenses');
-    if (data) {
-      this.expensesSubject.next(JSON.parse(data));
+  async loadExpenses() {
+    if (this.isGoogleAuthenticated) {
+      const expenses = await this.sheetsService.getExpenses();
+      this.expensesSubject.next(expenses);
     } else {
-      this.expensesSubject.next([]);
+      const saved = localStorage.getItem('lumina_expenses');
+      if (saved) {
+        this.expensesSubject.next(JSON.parse(saved));
+      }
     }
   }
 
-  private async loadFromSheets() {
-    const expenses = await this.sheetsService.getExpenses();
-    // Sort by date desc (assuming sheet appends to bottom)
-    expenses.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    this.expensesSubject.next(expenses);
-  }
-
-  async addExpense(amount: number, category: string, note: string, date: string) {
-    const expense: Expense = {
-      id: Date.now(),
-      amount: amount,
-      category: category,
-      note: note,
-      date: date
-    };
+  async addExpense(expenseData: Omit<Expense, 'id'>) {
+    const currentExpenses = this.expensesSubject.value;
+    const newId = currentExpenses.length > 0 ? Math.max(...currentExpenses.map(e => e.id)) + 1 : 1;
+    const newExpense: Expense = { ...expenseData, id: newId };
 
     // Optimistic update
-    const currentExpenses = this.expensesSubject.value;
-    const updatedExpenses = [expense, ...currentExpenses];
+    const updatedExpenses = [...currentExpenses, newExpense];
     this.expensesSubject.next(updatedExpenses);
 
     if (this.isGoogleAuthenticated) {
       try {
-        await this.sheetsService.addExpense(expense);
+        await this.sheetsService.addExpense(newExpense);
       } catch (error) {
-        console.error('Failed to save to Sheets, reverting', error);
-        // Revert on failure (simple version)
-        this.expensesSubject.next(currentExpenses);
+        console.error('Failed to save to Sheets', error);
+        this.expensesSubject.next(currentExpenses); // Revert
         alert('Failed to save to Google Sheets');
       }
     } else {

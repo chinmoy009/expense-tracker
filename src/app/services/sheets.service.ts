@@ -2,6 +2,7 @@ import { Injectable } from '@angular/core';
 import { environment } from '../config';
 import { Expense } from './expense.service';
 import { GoogleApiService } from './google-api.service';
+import { Bank, BankTransaction } from '../models/bank.model';
 
 declare var gapi: any;
 
@@ -32,7 +33,7 @@ export class SheetsService {
 
       const response = await gapi.client.sheets.spreadsheets.values.get({
         spreadsheetId: environment.google.spreadsheetId,
-        range: `${this.expensesSheetName}!A:E`,
+        range: `${this.expensesSheetName}!A:F`,
       });
 
       const rows = response.result.values;
@@ -48,7 +49,8 @@ export class SheetsService {
         date: row[1],
         category: row[2],
         amount: Number(row[3]),
-        note: row[4]
+        note: row[4],
+        bankId: row[5] || undefined
       }));
     } catch (error) {
       console.error('Error fetching from Sheets:', error);
@@ -58,20 +60,19 @@ export class SheetsService {
 
   async addExpense(expense: Expense): Promise<void> {
     await this.googleApiService.ensureInitialized();
-    const values = [
-      [
+    try {
+      const values = [[
         expense.id,
         expense.date,
         expense.category,
         expense.amount,
-        expense.note
-      ]
-    ];
+        expense.note,
+        expense.bankId || ''
+      ]];
 
-    try {
       await gapi.client.sheets.spreadsheets.values.append({
         spreadsheetId: environment.google.spreadsheetId,
-        range: `${this.expensesSheetName}!A:E`,
+        range: `${this.expensesSheetName}!A:F`,
         valueInputOption: 'USER_ENTERED',
         resource: {
           values: values
@@ -92,12 +93,9 @@ export class SheetsService {
     const rows = response.result.values;
     if (!rows) return -1;
 
-    // Assuming ID is in column A (index 0)
-    // Rows are 0-indexed in array, but 1-indexed in Sheets.
-    // Row 1 is header. Data starts at Row 2.
     for (let i = 0; i < rows.length; i++) {
       if (rows[i][0] == id) {
-        return i + 1; // Return 1-based row number
+        return i + 1; // 1-indexed for Sheets
       }
     }
     return -1;
@@ -105,25 +103,31 @@ export class SheetsService {
 
   async updateExpense(expense: Expense): Promise<void> {
     await this.googleApiService.ensureInitialized();
-    const rowIndex = await this.findRowIndexById(expense.id);
-    if (rowIndex === -1) throw new Error('Expense not found');
+    try {
+      const rowIndex = await this.findRowIndexById(expense.id);
+      if (rowIndex === -1) throw new Error('Expense not found');
 
-    const values = [
-      [
+      const values = [[
         expense.id,
         expense.date,
         expense.category,
         expense.amount,
-        expense.note
-      ]
-    ];
+        expense.note,
+        expense.bankId || ''
+      ]];
 
-    await gapi.client.sheets.spreadsheets.values.update({
-      spreadsheetId: environment.google.spreadsheetId,
-      range: `${this.expensesSheetName}!A${rowIndex}:E${rowIndex}`,
-      valueInputOption: 'USER_ENTERED',
-      resource: { values: values }
-    });
+      await gapi.client.sheets.spreadsheets.values.update({
+        spreadsheetId: environment.google.spreadsheetId,
+        range: `${this.expensesSheetName}!A${rowIndex}:F${rowIndex}`,
+        valueInputOption: 'USER_ENTERED',
+        resource: {
+          values: values
+        }
+      });
+    } catch (error) {
+      console.error('Error updating in Sheets:', error);
+      throw error;
+    }
   }
 
   async deleteExpense(id: number): Promise<void> {
@@ -131,8 +135,6 @@ export class SheetsService {
     const rowIndex = await this.findRowIndexById(id);
     if (rowIndex === -1) throw new Error('Expense not found');
 
-    // Delete the row
-    // We need the sheetId (integer), not the sheet name (string)
     const spreadsheet = await gapi.client.sheets.spreadsheets.get({
       spreadsheetId: environment.google.spreadsheetId
     });
@@ -148,8 +150,8 @@ export class SheetsService {
             range: {
               sheetId: sheetId,
               dimension: 'ROWS',
-              startIndex: rowIndex - 1, // 0-based inclusive
-              endIndex: rowIndex // 0-based exclusive
+              startIndex: rowIndex - 1,
+              endIndex: rowIndex
             }
           }
         }]
@@ -461,6 +463,272 @@ export class SheetsService {
       return newRows.length;
     } catch (error) {
       console.error('Error importing categories from expenses:', error);
+      throw error;
+    }
+  }
+
+  // --- Bank Module ---
+
+  async ensureBanksTab(): Promise<void> {
+    await this.googleApiService.ensureInitialized();
+    try {
+      const spreadsheet = await gapi.client.sheets.spreadsheets.get({
+        spreadsheetId: environment.google.spreadsheetId
+      });
+
+      const sheets = spreadsheet.result.sheets;
+      const banksSheet = sheets.find((s: any) => s.properties.title === 'Banks');
+
+      if (!banksSheet) {
+        await gapi.client.sheets.spreadsheets.batchUpdate({
+          spreadsheetId: environment.google.spreadsheetId,
+          resource: {
+            requests: [{
+              addSheet: {
+                properties: { title: 'Banks' }
+              }
+            }]
+          }
+        });
+
+        await gapi.client.sheets.spreadsheets.values.update({
+          spreadsheetId: environment.google.spreadsheetId,
+          range: 'Banks!A1:M1',
+          valueInputOption: 'USER_ENTERED',
+          resource: {
+            values: [[
+              'ID', 'Bank Name', 'Bank Code', 'Account Name', 'Account Number',
+              'Account Type', 'Home Branch', 'Branch Zone', 'Branch District',
+              'Opening Balance', 'IsClosed', 'CreatedAt', 'UpdatedAt'
+            ]]
+          }
+        });
+      }
+    } catch (error) {
+      console.error('Error ensuring Banks tab:', error);
+    }
+  }
+
+  async ensureBankTransactionsTab(): Promise<void> {
+    await this.googleApiService.ensureInitialized();
+    try {
+      const spreadsheet = await gapi.client.sheets.spreadsheets.get({
+        spreadsheetId: environment.google.spreadsheetId
+      });
+
+      const sheets = spreadsheet.result.sheets;
+      const transSheet = sheets.find((s: any) => s.properties.title === 'Bank Transactions');
+
+      if (!transSheet) {
+        await gapi.client.sheets.spreadsheets.batchUpdate({
+          spreadsheetId: environment.google.spreadsheetId,
+          resource: {
+            requests: [{
+              addSheet: {
+                properties: { title: 'Bank Transactions' }
+              }
+            }]
+          }
+        });
+
+        await gapi.client.sheets.spreadsheets.values.update({
+          spreadsheetId: environment.google.spreadsheetId,
+          range: 'Bank Transactions!A1:H1',
+          valueInputOption: 'USER_ENTERED',
+          resource: {
+            values: [[
+              'Bank ID', 'Transaction Type', 'Amount', 'Date', 'Details',
+              'Transaction ID', 'CreatedAt', 'UpdatedAt'
+            ]]
+          }
+        });
+      }
+    } catch (error) {
+      console.error('Error ensuring Bank Transactions tab:', error);
+    }
+  }
+
+  async getBanks(): Promise<Bank[]> {
+    await this.googleApiService.ensureInitialized();
+    try {
+      const response = await gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId: environment.google.spreadsheetId,
+        range: 'Banks!A:M'
+      });
+
+      const rows = response.result.values;
+      if (!rows || rows.length < 2) return [];
+
+      return rows.slice(1).map((row: any[]) => ({
+        id: row[0],
+        bankName: row[1],
+        bankCode: row[2],
+        accountName: row[3],
+        accountNumber: row[4],
+        accountType: row[5],
+        homeBranch: row[6],
+        branchZone: row[7],
+        branchDistrict: row[8],
+        openingBalance: Number(row[9]),
+        isClosed: row[10] === 'TRUE',
+        createdAt: row[11],
+        updatedAt: row[12]
+      }));
+    } catch (error) {
+      console.error('Error fetching banks:', error);
+      return [];
+    }
+  }
+
+  async addBank(bank: Bank): Promise<void> {
+    await this.googleApiService.ensureInitialized();
+    try {
+      await gapi.client.sheets.spreadsheets.values.append({
+        spreadsheetId: environment.google.spreadsheetId,
+        range: 'Banks!A:M',
+        valueInputOption: 'USER_ENTERED',
+        resource: {
+          values: [[
+            bank.id, bank.bankName, bank.bankCode, bank.accountName, bank.accountNumber,
+            bank.accountType, bank.homeBranch, bank.branchZone, bank.branchDistrict,
+            bank.openingBalance, bank.isClosed, bank.createdAt, bank.updatedAt
+          ]]
+        }
+      });
+    } catch (error) {
+      console.error('Error adding bank:', error);
+      throw error;
+    }
+  }
+
+  async updateBank(bank: Bank): Promise<void> {
+    await this.googleApiService.ensureInitialized();
+    try {
+      const banks = await this.getBanks();
+      const rowIndex = banks.findIndex(b => b.id === bank.id);
+      if (rowIndex === -1) throw new Error('Bank not found');
+
+      const sheetRow = rowIndex + 2;
+      await gapi.client.sheets.spreadsheets.values.update({
+        spreadsheetId: environment.google.spreadsheetId,
+        range: `Banks!A${sheetRow}:M${sheetRow}`,
+        valueInputOption: 'USER_ENTERED',
+        resource: {
+          values: [[
+            bank.id, bank.bankName, bank.bankCode, bank.accountName, bank.accountNumber,
+            bank.accountType, bank.homeBranch, bank.branchZone, bank.branchDistrict,
+            bank.openingBalance, bank.isClosed, bank.createdAt, bank.updatedAt
+          ]]
+        }
+      });
+    } catch (error) {
+      console.error('Error updating bank:', error);
+      throw error;
+    }
+  }
+
+  async getBankTransactions(): Promise<BankTransaction[]> {
+    await this.googleApiService.ensureInitialized();
+    try {
+      const response = await gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId: environment.google.spreadsheetId,
+        range: 'Bank Transactions!A:H'
+      });
+
+      const rows = response.result.values;
+      if (!rows || rows.length < 2) return [];
+
+      return rows.slice(1).map((row: any[]) => ({
+        bankId: row[0],
+        type: row[1] as 'DEBIT' | 'CREDIT',
+        amount: Number(row[2]),
+        date: row[3],
+        details: row[4],
+        id: row[5],
+        createdAt: row[6],
+        updatedAt: row[7]
+      }));
+    } catch (error) {
+      console.error('Error fetching bank transactions:', error);
+      return [];
+    }
+  }
+
+  async addBankTransaction(tx: BankTransaction): Promise<void> {
+    await this.googleApiService.ensureInitialized();
+    try {
+      await gapi.client.sheets.spreadsheets.values.append({
+        spreadsheetId: environment.google.spreadsheetId,
+        range: 'Bank Transactions!A:H',
+        valueInputOption: 'USER_ENTERED',
+        resource: {
+          values: [[
+            tx.bankId, tx.type, tx.amount, tx.date, tx.details, tx.id, tx.createdAt, tx.updatedAt
+          ]]
+        }
+      });
+    } catch (error) {
+      console.error('Error adding bank transaction:', error);
+      throw error;
+    }
+  }
+
+  async updateBankTransaction(tx: BankTransaction): Promise<void> {
+    await this.googleApiService.ensureInitialized();
+    try {
+      const txs = await this.getBankTransactions();
+      const rowIndex = txs.findIndex(t => t.id === tx.id);
+      if (rowIndex === -1) throw new Error('Transaction not found');
+
+      const sheetRow = rowIndex + 2;
+      await gapi.client.sheets.spreadsheets.values.update({
+        spreadsheetId: environment.google.spreadsheetId,
+        range: `Bank Transactions!A${sheetRow}:H${sheetRow}`,
+        valueInputOption: 'USER_ENTERED',
+        resource: {
+          values: [[
+            tx.bankId, tx.type, tx.amount, tx.date, tx.details, tx.id, tx.createdAt, tx.updatedAt
+          ]]
+        }
+      });
+    } catch (error) {
+      console.error('Error updating bank transaction:', error);
+      throw error;
+    }
+  }
+
+  async deleteBankTransaction(id: string): Promise<void> {
+    await this.googleApiService.ensureInitialized();
+    try {
+      const txs = await this.getBankTransactions();
+      const rowIndex = txs.findIndex(t => t.id === id);
+      if (rowIndex === -1) throw new Error('Transaction not found');
+
+      const sheetRow = rowIndex + 2;
+      const spreadsheet = await gapi.client.sheets.spreadsheets.get({
+        spreadsheetId: environment.google.spreadsheetId
+      });
+      const sheet = spreadsheet.result.sheets.find((s: any) => s.properties.title === 'Bank Transactions');
+      if (!sheet) throw new Error('Bank Transactions sheet not found');
+      const sheetId = sheet.properties.sheetId;
+
+      await gapi.client.sheets.spreadsheets.batchUpdate({
+        spreadsheetId: environment.google.spreadsheetId,
+        resource: {
+          requests: [{
+            deleteDimension: {
+              range: {
+                sheetId: sheetId,
+                dimension: 'ROWS',
+                startIndex: sheetRow - 1,
+                endIndex: sheetRow
+              }
+            }
+          }]
+        }
+      });
+    } catch (error) {
+      console.error('Error deleting bank transaction:', error);
       throw error;
     }
   }

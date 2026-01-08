@@ -20,14 +20,22 @@ import { CategoryService, CategoryNode } from '../../services/category.service';
         <div class="filter-group">
             <label>Period</label>
             <div class="period-inputs">
-                <select [(ngModel)]="selectedMonth" (change)="updateFilter()" class="glass-select">
+                <select [(ngModel)]="selectedMonth" (change)="updateFilter()" class="glass-select" [disabled]="!!selectedDate">
                     <option [ngValue]="null">All Months</option>
                     <option *ngFor="let m of months; let i = index" [ngValue]="i">{{ m }}</option>
                 </select>
-                <select [(ngModel)]="selectedYear" (change)="updateFilter()" class="glass-select">
+                <select [(ngModel)]="selectedYear" (change)="updateFilter()" class="glass-select" [disabled]="!!selectedDate">
                     <option [ngValue]="null">All Years</option>
                     <option *ngFor="let y of years" [ngValue]="y">{{ y }}</option>
                 </select>
+            </div>
+        </div>
+
+        <!-- Date Filter -->
+        <div class="filter-group">
+            <label>Specific Date (Overrides Period)</label>
+            <div class="date-inputs">
+                <input type="date" [(ngModel)]="selectedDate" (change)="updateFilter()" class="glass-input">
             </div>
         </div>
 
@@ -112,6 +120,7 @@ export class SearchFilterComponent implements OnInit {
   selectedMonth: number | null = new Date().getMonth();
   selectedYear: number | null = new Date().getFullYear();
   selectedCategoryId: string | null = null;
+  selectedDate: string | null = null;
   startDate: string | null = null;
   endDate: string | null = null;
 
@@ -135,6 +144,7 @@ export class SearchFilterComponent implements OnInit {
       month: this.selectedMonth,
       year: this.selectedYear,
       categoryId: this.selectedCategoryId,
+      specificDate: this.selectedDate,
       startDate: this.startDate ? new Date(this.startDate) : null,
       endDate: this.endDate ? new Date(this.endDate) : null
     });
@@ -144,6 +154,7 @@ export class SearchFilterComponent implements OnInit {
     this.selectedMonth = new Date().getMonth();
     this.selectedYear = new Date().getFullYear();
     this.selectedCategoryId = null;
+    this.selectedDate = null;
     this.startDate = null;
     this.endDate = null;
     this.updateFilter();
