@@ -3,6 +3,7 @@ import { environment } from '../config';
 import { Expense } from './expense.service';
 import { GoogleApiService } from './google-api.service';
 import { Bank, BankTransaction } from '../models/bank.model';
+import { LoanTransaction } from '../models/loan.model';
 
 declare var gapi: any;
 
@@ -729,6 +730,154 @@ export class SheetsService {
       });
     } catch (error) {
       console.error('Error deleting bank transaction:', error);
+      throw error;
+    }
+  }
+  // --- Loan Management ---
+
+  async ensureLoanTransactionsTab(): Promise<void> {
+    await this.googleApiService.ensureInitialized();
+    try {
+      const spreadsheet = await gapi.client.sheets.spreadsheets.get({
+        spreadsheetId: environment.google.spreadsheetId
+      });
+
+      const sheets = spreadsheet.result.sheets;
+      const loanSheet = sheets.find((s: any) => s.properties.title === 'Loan Transactions');
+
+      if (!loanSheet) {
+        await gapi.client.sheets.spreadsheets.batchUpdate({
+          spreadsheetId: environment.google.spreadsheetId,
+          resource: {
+            requests: [{
+              addSheet: {
+                properties: { title: 'Loan Transactions' }
+              }
+            }]
+          }
+        });
+
+        await gapi.client.sheets.spreadsheets.values.update({
+          spreadsheetId: environment.google.spreadsheetId,
+          range: 'Loan Transactions!A1:H1',
+          valueInputOption: 'USER_ENTERED',
+          resource: {
+            values: [[
+              'ID', 'Name', 'User Received', 'User Gave', 'Date',
+              'Medium', 'CreatedAt', 'UpdatedAt'
+            ]]
+          }
+        });
+      }
+    } catch (error) {
+      console.error('Error ensuring Loan Transactions tab:', error);
+    }
+  }
+
+  async getLoanTransactions(): Promise<LoanTransaction[]> {
+    await this.googleApiService.ensureInitialized();
+    try {
+      const response = await gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId: environment.google.spreadsheetId,
+        range: 'Loan Transactions!A:H'
+      });
+
+      const rows = response.result.values;
+      if (!rows || rows.length < 2) return [];
+
+      return rows.slice(1).map((row: any[]) => ({
+        id: row[0],
+        name: row[1],
+        userReceived: Number(row[2]),
+        userGave: Number(row[3]),
+        date: row[4],
+        medium: row[5],
+        createdAt: row[6],
+        updatedAt: row[7]
+      }));
+    } catch (error) {
+      console.error('Error fetching loan transactions:', error);
+      return [];
+    }
+  }
+
+  async addLoanTransaction(tx: LoanTransaction): Promise<void> {
+    await this.googleApiService.ensureInitialized();
+    try {
+      await gapi.client.sheets.spreadsheets.values.append({
+        spreadsheetId: environment.google.spreadsheetId,
+        range: 'Loan Transactions!A:H',
+        valueInputOption: 'USER_ENTERED',
+        resource: {
+          values: [[
+            tx.id, tx.name, tx.userReceived, tx.userGave, tx.date,
+            tx.medium, tx.createdAt, tx.updatedAt
+          ]]
+        }
+      });
+    } catch (error) {
+      console.error('Error adding loan transaction:', error);
+      throw error;
+    }
+  }
+
+  async updateLoanTransaction(tx: LoanTransaction): Promise<void> {
+    await this.googleApiService.ensureInitialized();
+    try {
+      const txs = await this.getLoanTransactions();
+      const rowIndex = txs.findIndex(t => t.id === tx.id);
+      if (rowIndex === -1) throw new Error('Loan Transaction not found');
+
+      const sheetRow = rowIndex + 2;
+      await gapi.client.sheets.spreadsheets.values.update({
+        spreadsheetId: environment.google.spreadsheetId,
+        range: `Loan Transactions!A${sheetRow}:H${sheetRow}`,
+        valueInputOption: 'USER_ENTERED',
+        resource: {
+          values: [[
+            tx.id, tx.name, tx.userReceived, tx.userGave, tx.date,
+            tx.medium, tx.createdAt, tx.updatedAt
+          ]]
+        }
+      });
+    } catch (error) {
+      console.error('Error updating loan transaction:', error);
+      throw error;
+    }
+  }
+
+  async deleteLoanTransaction(id: string): Promise<void> {
+    await this.googleApiService.ensureInitialized();
+    try {
+      const txs = await this.getLoanTransactions();
+      const rowIndex = txs.findIndex(t => t.id === id);
+      if (rowIndex === -1) throw new Error('Loan Transaction not found');
+
+      const sheetRow = rowIndex + 2;
+      const spreadsheet = await gapi.client.sheets.spreadsheets.get({
+        spreadsheetId: environment.google.spreadsheetId
+      });
+      const sheet = spreadsheet.result.sheets.find((s: any) => s.properties.title === 'Loan Transactions');
+      if (!sheet) throw new Error('Loan Transactions sheet not found');
+      const sheetId = sheet.properties.sheetId;
+
+      await gapi.client.sheets.spreadsheets.batchUpdate({
+        spreadsheetId: environment.google.spreadsheetId,
+        resource: {
+          requests: [{
+            deleteDimension: {
+              range: {
+                sheetId: sheetId,
+                dimension: 'ROWS',
+                startIndex: sheetRow - 1,
+                endIndex: sheetRow
+              }
+            }
+          }]
+        }
+      });
+    } catch (error) {
+      console.error('Error deleting loan transaction:', error);
       throw error;
     }
   }

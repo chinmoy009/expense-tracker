@@ -5,10 +5,10 @@ import { GoogleApiService } from './services/google-api.service';
 import { CurrencySelectorComponent } from './components/currency-selector/currency-selector.component';
 
 @Component({
-    selector: 'app-root',
-    standalone: true,
-    imports: [CommonModule, RouterModule, CurrencySelectorComponent],
-    template: `
+  selector: 'app-root',
+  standalone: true,
+  imports: [CommonModule, RouterModule, CurrencySelectorComponent],
+  template: `
     <div class="background-glow"></div>
     
     <!-- Sidebar Menu -->
@@ -40,6 +40,10 @@ import { CurrencySelectorComponent } from './components/currency-selector/curren
         <a routerLink="/banks" routerLinkActive="active" (click)="toggleMenu()" class="nav-link">
           <i class="fa-solid fa-building-columns"></i>
           <span>Banks</span>
+        </a>
+        <a routerLink="/loans" routerLinkActive="active" (click)="toggleMenu()" class="nav-link">
+          <i class="fa-solid fa-hand-holding-dollar"></i>
+          <span>Loans</span>
         </a>
         <!-- Placeholder for future modules -->
         <a class="nav-link disabled" title="Coming Soon">
@@ -95,7 +99,7 @@ import { CurrencySelectorComponent } from './components/currency-selector/curren
       </main>
     </div>
   `,
-    styles: [`
+  styles: [`
     .header-left { display: flex; align-items: center; gap: 15px; }
     .hamburger-btn {
       background: none;
@@ -223,22 +227,22 @@ import { CurrencySelectorComponent } from './components/currency-selector/curren
   `]
 })
 export class AppComponent {
-    currentDate = new Date();
-    user$ = this.googleApi.user$;
-    isMenuOpen = false;
+  currentDate = new Date();
+  user$ = this.googleApi.user$;
+  isMenuOpen = false;
 
-    constructor(private googleApi: GoogleApiService) { }
+  constructor(private googleApi: GoogleApiService) { }
 
-    toggleMenu() {
-        this.isMenuOpen = !this.isMenuOpen;
-    }
+  toggleMenu() {
+    this.isMenuOpen = !this.isMenuOpen;
+  }
 
-    signIn() {
-        this.googleApi.signIn();
-    }
+  signIn() {
+    this.googleApi.signIn();
+  }
 
-    signOut() {
-        this.googleApi.signOut();
-        this.isMenuOpen = false;
-    }
+  signOut() {
+    this.googleApi.signOut();
+    this.isMenuOpen = false;
+  }
 }
