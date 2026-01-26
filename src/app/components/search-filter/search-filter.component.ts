@@ -16,6 +16,12 @@ import { CategoryService, CategoryNode } from '../../services/category.service';
       </div>
 
       <div class="filter-grid">
+        <!-- Search Description -->
+        <div class="filter-group">
+            <label>Search Description</label>
+            <input type="text" [(ngModel)]="searchText" (ngModelChange)="updateFilter()" placeholder="e.g. Pizza" class="glass-input">
+        </div>
+
         <!-- Month/Year Selector -->
         <div class="filter-group">
             <label>Period</label>
@@ -47,16 +53,6 @@ import { CategoryService, CategoryNode } from '../../services/category.service';
                 <ng-container *ngTemplateOutlet="categoryOptions; context: { $implicit: categories$ | async, level: 0 }"></ng-container>
             </select>
         </div>
-
-        <!-- Custom Date Range (Optional) -->
-        <!-- <div class="filter-group">
-            <label>Date Range</label>
-            <div class="date-inputs">
-                <input type="date" [(ngModel)]="startDate" (change)="updateFilter()" class="glass-input">
-                <span class="separator">-</span>
-                <input type="date" [(ngModel)]="endDate" (change)="updateFilter()" class="glass-input">
-            </div>
-        </div> -->
       </div>
     </div>
 
@@ -121,6 +117,7 @@ export class SearchFilterComponent implements OnInit {
   selectedYear: number | null = new Date().getFullYear();
   selectedCategoryId: string | null = null;
   selectedDate: string | null = null;
+  searchText: string = '';
   startDate: string | null = null;
   endDate: string | null = null;
 
@@ -145,6 +142,7 @@ export class SearchFilterComponent implements OnInit {
       year: this.selectedYear,
       categoryId: this.selectedCategoryId,
       specificDate: this.selectedDate,
+      searchText: this.searchText,
       startDate: this.startDate ? new Date(this.startDate) : null,
       endDate: this.endDate ? new Date(this.endDate) : null
     });
@@ -155,6 +153,7 @@ export class SearchFilterComponent implements OnInit {
     this.selectedYear = new Date().getFullYear();
     this.selectedCategoryId = null;
     this.selectedDate = null;
+    this.searchText = '';
     this.startDate = null;
     this.endDate = null;
     this.updateFilter();

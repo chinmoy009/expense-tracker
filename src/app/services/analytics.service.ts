@@ -11,6 +11,7 @@ export interface FilterState {
   year: number | null;
   categoryId: string | null;
   specificDate: string | null;
+  searchText: string;
 }
 
 export interface AnalyticsResult {
@@ -30,7 +31,8 @@ export class AnalyticsService {
     month: new Date().getMonth(),
     year: new Date().getFullYear(),
     categoryId: null,
-    specificDate: null
+    specificDate: null,
+    searchText: ''
   });
 
   filter$ = this.filterSubject.asObservable();
@@ -56,6 +58,12 @@ export class AnalyticsService {
     // 1. Filter Expenses
     const filtered = expenses.filter(e => {
       const date = new Date(e.date);
+
+      // Text Search (Description/Note)
+      if (filter.searchText) {
+        const search = filter.searchText.toLowerCase();
+        if (!e.note || !e.note.toLowerCase().includes(search)) return false;
+      }
 
       // Date Range
       if (filter.startDate && date < filter.startDate) return false;

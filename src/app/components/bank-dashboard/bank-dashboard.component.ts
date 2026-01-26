@@ -2,6 +2,7 @@ import { Component, OnInit, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { BankService } from '../../services/bank.service';
+import { SettingsService } from '../../services/settings.service';
 import { Bank, BankTransaction } from '../../models/bank.model';
 import { Observable, map } from 'rxjs';
 import { BankFormComponent } from '../bank-form/bank-form.component';
@@ -48,7 +49,7 @@ import { BankTransactionFormComponent } from '../bank-transaction-form/bank-tran
             </div>
             <div class="bank-balance">
               <p class="label">Current Balance</p>
-              <h2 class="amount">{{ (getBalance(bank.id) | async) | currency }}</h2>
+              <h2 class="amount">{{ (getBalance(bank.id) | async) | currency: (currency$ | async) || 'USD' }}</h2>
               <div class="bank-actions">
                 <button (click)="bankForm.open(bank)" title="Edit"><i class="fa-solid fa-pen"></i></button>
                 <button (click)="copyDetails(bank)" title="Copy Details"><i class="fa-solid fa-copy"></i></button>
@@ -80,7 +81,7 @@ import { BankTransactionFormComponent } from '../bank-transaction-form/bank-tran
             </div>
             <div class="tx-amount-actions">
               <h3 class="tx-amount" [class.credit]="tx.type === 'CREDIT'">
-                {{ tx.type === 'DEBIT' ? '-' : '+' }}{{ tx.amount | currency }}
+                {{ tx.type === 'DEBIT' ? '-' : '+' }}{{ tx.amount | currency: (currency$ | async) || 'USD' }}
               </h3>
               <div class="tx-actions">
                 <button (click)="txForm.open(tx)" title="Edit"><i class="fa-solid fa-pen"></i></button>
@@ -138,34 +139,36 @@ import { BankTransactionFormComponent } from '../bank-transaction-form/bank-tran
           <div class="statement-summary">
             <div class="summary-item">
               <span class="label">Opening Balance</span>
-              <span class="value">{{ statementData.openingBalance | currency }}</span>
+              <span class="value">{{ statementData.openingBalance | currency: (currency$ | async) || 'USD' }}</span>
             </div>
             <div class="summary-item">
               <span class="label">Closing Balance</span>
-              <span class="value highlight">{{ statementData.closingBalance | currency }}</span>
+              <span class="value highlight">{{ statementData.closingBalance | currency: (currency$ | async) || 'USD' }}</span>
             </div>
           </div>
 
-          <table class="statement-table">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Details</th>
-                <th>Debit</th>
-                <th>Credit</th>
-                <th>Balance</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr *ngFor="let row of statementData.transactions">
-                <td>{{ row.date | date:'shortDate' }}</td>
-                <td>{{ row.details }}</td>
-                <td class="debit">{{ row.type === 'DEBIT' ? (row.amount | currency) : '' }}</td>
-                <td class="credit">{{ row.type === 'CREDIT' ? (row.amount | currency) : '' }}</td>
-                <td>{{ row.runningBalance | currency }}</td>
-              </tr>
-            </tbody>
-          </table>
+          <div class="statement-table-wrapper">
+            <table class="statement-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Details</th>
+                  <th>Debit</th>
+                  <th>Credit</th>
+                  <th>Balance</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr *ngFor="let row of statementData.transactions">
+                  <td>{{ row.date | date:'shortDate' }}</td>
+                  <td>{{ row.details }}</td>
+                  <td class="debit">{{ row.type === 'DEBIT' ? (row.amount | currency: (currency$ | async) || 'USD') : '' }}</td>
+                  <td class="credit">{{ row.type === 'CREDIT' ? (row.amount | currency: (currency$ | async) || 'USD') : '' }}</td>
+                  <td>{{ row.runningBalance | currency: (currency$ | async) || 'USD' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
@@ -247,6 +250,26 @@ import { BankTransactionFormComponent } from '../bank-transaction-form/bank-tran
     @keyframes spin {
       to { transform: rotate(360deg); }
     }
+
+    /* Responsive Design */
+    @media (max-width: 768px) {
+        .filter-row { grid-template-columns: 1fr; }
+        .tabs { overflow-x: auto; white-space: nowrap; padding-bottom: 5px; }
+        .tabs button { font-size: 0.9rem; padding: 8px 12px; }
+        
+        .bank-card { flex-direction: column; align-items: flex-start; gap: 15px; }
+        .bank-balance { text-align: left; width: 100%; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 10px; display: flex; justify-content: space-between; align-items: center; }
+        .bank-balance .label { display: none; }
+        .bank-actions { margin-top: 0; }
+        
+        .tx-card { flex-direction: column; align-items: flex-start; gap: 10px; }
+        .tx-amount-actions { width: 100%; display: flex; justify-content: space-between; align-items: center; margin-top: 5px; }
+        .tx-actions { margin-top: 0; }
+
+        .statement-summary { flex-direction: column; gap: 10px; }
+        .statement-table-wrapper { overflow-x: auto; }
+        .statement-table { min-width: 600px; }
+    }
   `]
 })
 export class BankDashboardComponent implements OnInit {
@@ -260,6 +283,8 @@ export class BankDashboardComponent implements OnInit {
     map(txs => [...txs].sort((a, b) => b.date.localeCompare(a.date)))
   );
 
+  currency$ = this.settingsService.currency$;
+
   statementFilter = {
     bankId: '',
     startDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
@@ -271,7 +296,10 @@ export class BankDashboardComponent implements OnInit {
   statementData: any = null;
   private banks: Bank[] = [];
 
-  constructor(private bankService: BankService) { }
+  constructor(
+    private bankService: BankService,
+    private settingsService: SettingsService
+  ) { }
 
   ngOnInit() {
     this.banks$.subscribe(banks => this.banks = banks);

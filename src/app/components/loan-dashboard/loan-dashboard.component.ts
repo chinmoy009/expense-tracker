@@ -2,6 +2,7 @@
 import { Component, OnInit, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { LoanService } from '../../services/loan.service';
+import { SettingsService } from '../../services/settings.service';
 import { LoanTransactionModalComponent } from '../loan-transaction-modal/loan-transaction-modal.component';
 import { Observable } from 'rxjs';
 import { LoanTransaction, LoanSummary } from '../../models/loan.model';
@@ -26,16 +27,14 @@ import { LoanTransaction, LoanSummary } from '../../models/loan.model';
                 <div class="metric-icon"><i class="fa-solid fa-hand-holding-dollar"></i></div>
                 <div class="metric-info">
                     <span>Total Receivable</span>
-                    <h3>{{ (receivables$ | async) | json | currency }}</h3> <!-- Simple sum placeholder, logic in pipe better -->
-                    <!-- Simpler: Just calculated sum in template or component for now -->
-                    <h3>{{ totalReceivable | currency }}</h3>
+                    <h3>{{ totalReceivable | currency: (currency$ | async) || 'USD' }}</h3>
                 </div>
             </div>
             <div class="metric-card payable-card">
                 <div class="metric-icon"><i class="fa-solid fa-hand-holding-hand"></i></div>
                 <div class="metric-info">
                     <span>Total Payable</span>
-                    <h3>{{ totalPayable | currency }}</h3>
+                    <h3>{{ totalPayable | currency: (currency$ | async) || 'USD' }}</h3>
                 </div>
             </div>
         </div>
@@ -61,7 +60,7 @@ import { LoanTransaction, LoanSummary } from '../../models/loan.model';
                         <span class="sub-text">{{ tx.date | date }} • {{ tx.medium }}</span>
                     </div>
                     <div class="item-amount" [ngClass]="tx.userGave > 0 ? 'positive' : 'negative'">
-                        {{ (tx.userGave > 0 ? tx.userGave : tx.userReceived) | currency }}
+                        {{ (tx.userGave > 0 ? tx.userGave : tx.userReceived) | currency: (currency$ | async) || 'USD' }}
                         <span class="label">{{ tx.userGave > 0 ? 'Gave' : 'Received' }}</span>
                     </div>
                     <div class="item-actions">
@@ -83,7 +82,7 @@ import { LoanTransaction, LoanSummary } from '../../models/loan.model';
                         <span class="sub-text">Owes you money</span>
                     </div>
                     <div class="item-amount positive">
-                        {{ item.balance | currency }}
+                        {{ item.balance | currency: (currency$ | async) || 'USD' }}
                     </div>
                  </div>
                  <div *ngIf="(receivables$ | async)?.length === 0" class="empty-state">
@@ -100,7 +99,7 @@ import { LoanTransaction, LoanSummary } from '../../models/loan.model';
                         <span class="sub-text">You owe them</span>
                     </div>
                     <div class="item-amount negative">
-                        {{ item.balance | currency }}
+                        {{ item.balance | currency: (currency$ | async) || 'USD' }}
                     </div>
                  </div>
                  <div *ngIf="(payables$ | async)?.length === 0" class="empty-state">
@@ -170,6 +169,21 @@ import { LoanTransaction, LoanSummary } from '../../models/loan.model';
     .item-actions button.delete:hover { color: #f72585; }
 
     .empty-state { text-align: center; padding: 40px; color: var(--text-secondary); font-style: italic; }
+
+    /* Responsive Design */
+    @media (max-width: 768px) {
+        .metrics-grid { grid-template-columns: 1fr; }
+        .tabs { overflow-x: auto; white-space: nowrap; width: 100%; }
+        
+        .list-item { flex-direction: column; align-items: flex-start; gap: 10px; position: relative; }
+        .item-icon { margin-bottom: 5px; }
+        .item-details { width: 100%; }
+        
+        .item-amount { text-align: left; margin: 5px 0 0 0; font-size: 1.1rem; display: flex; align-items: center; gap: 10px; }
+        .item-amount .label { display: inline; margin: 0; background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 4px; }
+        
+        .item-actions { position: absolute; top: 15px; right: 15px; opacity: 1; }
+    }
   `]
 })
 export class LoanDashboardComponent implements OnInit {
@@ -181,10 +195,15 @@ export class LoanDashboardComponent implements OnInit {
     receivables$: Observable<LoanSummary[]> = this.loanService.getReceivables();
     payables$: Observable<LoanSummary[]> = this.loanService.getPayables();
 
+    currency$ = this.settingsService.currency$;
+
     totalReceivable = 0;
     totalPayable = 0;
 
-    constructor(private loanService: LoanService) { }
+    constructor(
+        private loanService: LoanService,
+        private settingsService: SettingsService
+    ) { }
 
     ngOnInit() {
         // Calculate totals

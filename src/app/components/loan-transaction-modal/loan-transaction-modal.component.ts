@@ -4,6 +4,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { LoanService } from '../../services/loan.service';
 import { BankService } from '../../services/bank.service';
+import { SettingsService } from '../../services/settings.service';
 import { LoanTransaction } from '../../models/loan.model';
 import { Observable } from 'rxjs';
 import { Bank } from '../../models/bank.model';
@@ -40,7 +41,7 @@ import { Bank } from '../../models/bank.model';
                 <div class="input-group">
                     <label>Amount</label>
                     <div class="amount-wrapper">
-                        <span class="currency">$</span>
+                        <span class="currency">{{ (currency$ | async) === 'BDT' ? '৳' : '$' }}</span>
                         <input type="number" [(ngModel)]="amount" name="amount" class="amount-input" placeholder="0.00" required>
                     </div>
                 </div>
@@ -142,10 +143,12 @@ export class LoanTransactionModalComponent implements OnInit {
     customMediums: string[] = [];
 
     banks$: Observable<Bank[]> = this.bankService.banks$;
+    currency$ = this.settingsService.currency$;
 
     constructor(
         private loanService: LoanService,
-        private bankService: BankService
+        private bankService: BankService,
+        private settingsService: SettingsService
     ) { }
 
     ngOnInit() {
