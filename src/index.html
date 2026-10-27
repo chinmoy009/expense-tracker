@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 
 <head>
   <meta charset="utf-8">
@@ -7,6 +7,23 @@
   <base href="/">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
+  <script>
+    // Apply saved theme before first paint to avoid a flash of the wrong theme
+    (function () {
+      var mode = 'dark';
+      try {
+        var saved = localStorage.getItem('lumina_theme');
+        if (saved === 'light' || saved === 'dark') {
+          mode = saved;
+        } else if (window.matchMedia && !window.matchMedia('(prefers-color-scheme: dark)').matches) {
+          mode = 'light';
+        }
+      } catch (e) { }
+      document.documentElement.setAttribute('data-theme', mode);
+    })();
+  </script>
 </head>
 
 <body>

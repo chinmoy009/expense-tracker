@@ -1,312 +1,309 @@
-import { Component, OnInit, ViewChild } from '@angular/core';
+import { Component, OnDestroy, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { MatDialog } from '@angular/material/dialog';
+import { MatButtonModule } from '@angular/material/button';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatIconModule } from '@angular/material/icon';
+import { MatInputModule } from '@angular/material/input';
+import { MatProgressBarModule } from '@angular/material/progress-bar';
+import { MatSelectModule } from '@angular/material/select';
+import { MatTableModule } from '@angular/material/table';
+import { MatTabsModule } from '@angular/material/tabs';
+import { MatTooltipModule } from '@angular/material/tooltip';
+import { combineLatest, Subscription } from 'rxjs';
+import { map, take } from 'rxjs/operators';
 import { BankService } from '../../services/bank.service';
 import { SettingsService } from '../../services/settings.service';
 import { Bank, BankTransaction } from '../../models/bank.model';
-import { Observable, map } from 'rxjs';
 import { BankFormComponent } from '../bank-form/bank-form.component';
 import { BankTransactionFormComponent } from '../bank-transaction-form/bank-transaction-form.component';
+import { NotifyService } from '../../shared/notify/notify.service';
+import { todayLocalISODate, toLocalISODate } from '../../utils/date.util';
 
+interface AccountRow {
+  bank: Bank;
+  balance: number;
+}
+
+interface StatementData {
+  openingBalance: number;
+  closingBalance: number;
+  transactions: (BankTransaction & { runningBalance: number })[];
+}
+
+/** Banks page: account cards, all transactions, and account statements. */
 @Component({
   selector: 'app-bank-dashboard',
   standalone: true,
-  imports: [CommonModule, FormsModule, BankFormComponent, BankTransactionFormComponent],
+  imports: [CommonModule, FormsModule, MatButtonModule, MatFormFieldModule, MatIconModule, MatInputModule, MatProgressBarModule, MatSelectModule, MatTableModule, MatTabsModule, MatTooltipModule],
   template: `
-    <div class="bank-dashboard">
-      <div *ngIf="loading$ | async" class="loading-overlay">
-        <div class="spinner"></div>
-      </div>
+    <mat-progress-bar *ngIf="loading$ | async" mode="indeterminate" class="loading" aria-label="Loading bank data"></mat-progress-bar>
 
-      <div class="tabs">
-        <button [class.active]="activeTab === 'accounts'" (click)="activeTab = 'accounts'">
-          <i class="fa-solid fa-building-columns"></i> Accounts
-        </button>
-        <button [class.active]="activeTab === 'transactions'" (click)="activeTab = 'transactions'">
-          <i class="fa-solid fa-list-ul"></i> Transactions
-        </button>
-        <button [class.active]="activeTab === 'statement'" (click)="activeTab = 'statement'">
-          <i class="fa-solid fa-file-invoice-dollar"></i> Statement
-        </button>
-      </div>
+    <mat-tab-group animationDuration="0ms" class="tabs" [(selectedIndex)]="tabIndex">
 
-      <!-- Accounts Tab -->
-      <div *ngIf="activeTab === 'accounts'" class="tab-content">
-        <div class="header">
-          <h2>Bank Accounts</h2>
-          <button class="add-btn" (click)="bankForm.open()">
-            <i class="fa-solid fa-plus"></i> Add Bank
-          </button>
-        </div>
+      <!-- Accounts -->
+      <mat-tab label="Accounts">
+        <div class="tab-body">
+          <div class="section-head">
+            <h2>Bank accounts</h2>
+            <button mat-flat-button color="primary" (click)="openBankForm()">
+              <mat-icon>add</mat-icon> Add bank
+            </button>
+          </div>
 
-        <div class="bank-list">
-          <div *ngFor="let bank of banks$ | async" class="bank-card" [class.closed]="bank.isClosed">
-            <div class="bank-info">
-              <div class="acc-type">{{ bank.accountType }}</div>
-              <h3>{{ bank.bankName }} ({{ bank.bankCode }})</h3>
-              <p class="acc-num">{{ bank.accountNumber }}</p>
-              <p class="acc-name">{{ bank.accountName }}</p>
-            </div>
-            <div class="bank-balance">
-              <p class="label">Current Balance</p>
-              <h2 class="amount">{{ (getBalance(bank.id) | async) | currency: (currency$ | async) || 'USD' }}</h2>
-              <div class="bank-actions">
-                <button (click)="bankForm.open(bank)" title="Edit"><i class="fa-solid fa-pen"></i></button>
-                <button (click)="copyDetails(bank)" title="Copy Details"><i class="fa-solid fa-copy"></i></button>
-                <button *ngIf="!bank.isClosed" (click)="closeBank(bank.id)" title="Close Account" class="delete-btn"><i class="fa-solid fa-ban"></i></button>
+          <div class="account-grid">
+            <article class="account lm-card" *ngFor="let row of accountRows" [class.closed]="row.bank.isClosed">
+              <div class="acc-head">
+                <span class="acc-type">{{ row.bank.accountType }}</span>
+                <span class="closed-tag" *ngIf="row.bank.isClosed">Closed</span>
               </div>
-            </div>
-          </div>
-        </div>
-      </div>
+              <h3>{{ row.bank.bankName }} ({{ row.bank.bankCode }})</h3>
+              <div class="acc-num">{{ row.bank.accountNumber }}</div>
+              <div class="lm-muted">{{ row.bank.accountName }}</div>
 
-      <!-- Transactions Tab -->
-      <div *ngIf="activeTab === 'transactions'" class="tab-content">
-        <div class="header">
-          <h2>Recent Transactions</h2>
-          <button class="add-btn" (click)="txForm.open()">
-            <i class="fa-solid fa-plus"></i> Log Transaction
-          </button>
-        </div>
-
-        <div class="transaction-list">
-          <div *ngFor="let tx of transactions$ | async" class="tx-card">
-            <div class="tx-info">
-              <div class="tx-header">
-                <span class="tx-type" [class.credit]="tx.type === 'CREDIT'">{{ tx.type }}</span>
-                <span class="tx-date">{{ tx.date | date:'mediumDate' }}</span>
+              <div class="acc-foot">
+                <div>
+                  <div class="lm-muted">Current balance</div>
+                  <div class="balance lm-amount">{{ row.balance | currency:((currency$ | async) || 'USD') }}</div>
+                </div>
+                <div class="acc-actions">
+                  <button mat-icon-button (click)="openBankForm(row.bank)" matTooltip="Edit" [attr.aria-label]="'Edit ' + row.bank.bankName">
+                    <mat-icon>edit</mat-icon>
+                  </button>
+                  <button mat-icon-button (click)="copyDetails(row.bank)" matTooltip="Copy details" [attr.aria-label]="'Copy details of ' + row.bank.bankName">
+                    <mat-icon>content_copy</mat-icon>
+                  </button>
+                  <button mat-icon-button *ngIf="!row.bank.isClosed" (click)="closeBank(row.bank.id)" matTooltip="Close account" [attr.aria-label]="'Close ' + row.bank.bankName">
+                    <mat-icon>block</mat-icon>
+                  </button>
+                </div>
               </div>
-              <p class="tx-details">{{ tx.details }}</p>
-              <p class="tx-bank">{{ getBankInfo(tx.bankId) }}</p>
-            </div>
-            <div class="tx-amount-actions">
-              <h3 class="tx-amount" [class.credit]="tx.type === 'CREDIT'">
-                {{ tx.type === 'DEBIT' ? '-' : '+' }}{{ tx.amount | currency: (currency$ | async) || 'USD' }}
-              </h3>
-              <div class="tx-actions">
-                <button (click)="txForm.open(tx)" title="Edit"><i class="fa-solid fa-pen"></i></button>
-                <button (click)="deleteTransaction(tx.id)" title="Delete" class="delete-btn"><i class="fa-solid fa-trash"></i></button>
-              </div>
-            </div>
+            </article>
           </div>
+          <div class="lm-empty" *ngIf="accountRows.length === 0">No bank accounts yet.</div>
         </div>
-      </div>
+      </mat-tab>
 
-      <!-- Statement Tab -->
-      <div *ngIf="activeTab === 'statement'" class="tab-content">
-        <div class="header">
-          <h2>Account Statement</h2>
-        </div>
-
-        <div class="statement-filters">
-          <div class="filter-row">
-            <div class="filter-group">
-              <label>Select Bank</label>
-              <select [(ngModel)]="statementFilter.bankId" class="text-input">
-                <option value="">Choose Account</option>
-                <option *ngFor="let bank of banks$ | async" [value]="bank.id">
-                  {{ bank.bankCode }} - {{ bank.accountNumber }}
-                </option>
-              </select>
-            </div>
-            <div class="filter-group">
-              <label>Start Date</label>
-              <input type="date" [(ngModel)]="statementFilter.startDate" class="text-input">
-            </div>
-            <div class="filter-group">
-              <label>End Date</label>
-              <input type="date" [(ngModel)]="statementFilter.endDate" class="text-input">
-            </div>
-            <div class="filter-group">
-              <label>Type</label>
-              <select [(ngModel)]="statementFilter.type" class="text-input">
-                <option value="">All Types</option>
-                <option value="DEBIT">DEBIT</option>
-                <option value="CREDIT">CREDIT</option>
-              </select>
-            </div>
-            <div class="filter-group">
-              <label>Search Details</label>
-              <input type="text" [(ngModel)]="statementFilter.details" placeholder="Search..." class="text-input">
-            </div>
-          </div>
-          <button class="generate-btn" (click)="generateStatement()" [disabled]="!statementFilter.bankId">
-            Generate Statement
-          </button>
-        </div>
-
-        <div *ngIf="statementData" class="statement-results">
-          <div class="statement-summary">
-            <div class="summary-item">
-              <span class="label">Opening Balance</span>
-              <span class="value">{{ statementData.openingBalance | currency: (currency$ | async) || 'USD' }}</span>
-            </div>
-            <div class="summary-item">
-              <span class="label">Closing Balance</span>
-              <span class="value highlight">{{ statementData.closingBalance | currency: (currency$ | async) || 'USD' }}</span>
-            </div>
+      <!-- Transactions -->
+      <mat-tab label="Transactions">
+        <div class="tab-body">
+          <div class="section-head">
+            <h2>Recent transactions</h2>
+            <button mat-flat-button color="primary" (click)="openTxForm()">
+              <mat-icon>add</mat-icon> Log transaction
+            </button>
           </div>
 
-          <div class="statement-table-wrapper">
-            <table class="statement-table">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Details</th>
-                  <th>Debit</th>
-                  <th>Credit</th>
-                  <th>Balance</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr *ngFor="let row of statementData.transactions">
-                  <td>{{ row.date | date:'shortDate' }}</td>
-                  <td>{{ row.details }}</td>
-                  <td class="debit">{{ row.type === 'DEBIT' ? (row.amount | currency: (currency$ | async) || 'USD') : '' }}</td>
-                  <td class="credit">{{ row.type === 'CREDIT' ? (row.amount | currency: (currency$ | async) || 'USD') : '' }}</td>
-                  <td>{{ row.runningBalance | currency: (currency$ | async) || 'USD' }}</td>
-                </tr>
-              </tbody>
+          <div class="table-wrap">
+            <table mat-table [dataSource]="transactions" class="data-table">
+              <ng-container matColumnDef="date">
+                <th mat-header-cell *matHeaderCellDef>Date</th>
+                <td mat-cell *matCellDef="let tx">{{ tx.date | date:'mediumDate' }}</td>
+              </ng-container>
+              <ng-container matColumnDef="details">
+                <th mat-header-cell *matHeaderCellDef>Details</th>
+                <td mat-cell *matCellDef="let tx" class="wrap">{{ tx.details || '—' }}</td>
+              </ng-container>
+              <ng-container matColumnDef="account">
+                <th mat-header-cell *matHeaderCellDef>Account</th>
+                <td mat-cell *matCellDef="let tx">{{ getBankInfo(tx.bankId) }}</td>
+              </ng-container>
+              <ng-container matColumnDef="type">
+                <th mat-header-cell *matHeaderCellDef>Type</th>
+                <td mat-cell *matCellDef="let tx">
+                  <span class="type-badge" [class.credit]="tx.type === 'CREDIT'">{{ tx.type }}</span>
+                </td>
+              </ng-container>
+              <ng-container matColumnDef="amount">
+                <th mat-header-cell *matHeaderCellDef class="num">Amount</th>
+                <td mat-cell *matCellDef="let tx" class="num lm-amount" [class.lm-positive]="tx.type === 'CREDIT'" [class.lm-negative]="tx.type === 'DEBIT'">
+                  {{ tx.type === 'DEBIT' ? '-' : '+' }}{{ tx.amount | currency:((currency$ | async) || 'USD') }}
+                </td>
+              </ng-container>
+              <ng-container matColumnDef="actions">
+                <th mat-header-cell *matHeaderCellDef class="actions-col"></th>
+                <td mat-cell *matCellDef="let tx" class="actions-col">
+                  <button mat-icon-button (click)="openTxForm(tx)" aria-label="Edit transaction"><mat-icon>edit</mat-icon></button>
+                  <button mat-icon-button (click)="deleteTransaction(tx.id)" aria-label="Delete transaction"><mat-icon>delete_outline</mat-icon></button>
+                </td>
+              </ng-container>
+
+              <tr mat-header-row *matHeaderRowDef="txColumns"></tr>
+              <tr mat-row *matRowDef="let row; columns: txColumns"></tr>
             </table>
           </div>
+          <div class="lm-empty" *ngIf="transactions.length === 0">No transactions yet.</div>
         </div>
-      </div>
-    </div>
+      </mat-tab>
 
-    <app-bank-form #bankForm></app-bank-form>
-    <app-bank-transaction-form #txForm></app-bank-transaction-form>
+      <!-- Statement -->
+      <mat-tab label="Statement">
+        <div class="tab-body">
+          <div class="section-head"><h2>Account statement</h2></div>
+
+          <form class="filters lm-card" (ngSubmit)="generateStatement()">
+            <mat-form-field appearance="outline">
+              <mat-label>Account</mat-label>
+              <mat-select name="bankId" [(ngModel)]="statementFilter.bankId">
+                <mat-option value="">Choose account</mat-option>
+                <mat-option *ngFor="let bank of banks" [value]="bank.id">{{ bank.bankCode }} - {{ bank.accountNumber }}</mat-option>
+              </mat-select>
+            </mat-form-field>
+            <mat-form-field appearance="outline">
+              <mat-label>Start date</mat-label>
+              <input matInput type="date" name="startDate" [(ngModel)]="statementFilter.startDate">
+            </mat-form-field>
+            <mat-form-field appearance="outline">
+              <mat-label>End date</mat-label>
+              <input matInput type="date" name="endDate" [(ngModel)]="statementFilter.endDate">
+            </mat-form-field>
+            <mat-form-field appearance="outline">
+              <mat-label>Type</mat-label>
+              <mat-select name="type" [(ngModel)]="statementFilter.type">
+                <mat-option value="">All types</mat-option>
+                <mat-option value="DEBIT">DEBIT</mat-option>
+                <mat-option value="CREDIT">CREDIT</mat-option>
+              </mat-select>
+            </mat-form-field>
+            <mat-form-field appearance="outline">
+              <mat-label>Search details</mat-label>
+              <input matInput name="details" [(ngModel)]="statementFilter.details" placeholder="Search…">
+            </mat-form-field>
+            <button mat-flat-button color="primary" type="submit" [disabled]="!statementFilter.bankId" class="generate">
+              Generate statement
+            </button>
+          </form>
+
+          <ng-container *ngIf="statementData">
+            <div class="summary-strip">
+              <div class="lm-card"><div class="lm-muted">Opening balance</div><div class="value lm-amount">{{ statementData.openingBalance | currency:((currency$ | async) || 'USD') }}</div></div>
+              <div class="lm-card"><div class="lm-muted">Closing balance</div><div class="value lm-amount highlight">{{ statementData.closingBalance | currency:((currency$ | async) || 'USD') }}</div></div>
+            </div>
+
+            <div class="table-wrap">
+              <table class="data-table statement">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Details</th>
+                    <th class="num">Debit</th>
+                    <th class="num">Credit</th>
+                    <th class="num">Balance</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr *ngFor="let row of statementData.transactions">
+                    <td>{{ row.date | date:'mediumDate' }}</td>
+                    <td class="wrap">{{ row.details || '—' }}</td>
+                    <td class="num lm-amount lm-negative">{{ row.type === 'DEBIT' ? (row.amount | currency:((currency$ | async) || 'USD')) : '' }}</td>
+                    <td class="num lm-amount lm-positive">{{ row.type === 'CREDIT' ? (row.amount | currency:((currency$ | async) || 'USD')) : '' }}</td>
+                    <td class="num lm-amount">{{ row.runningBalance | currency:((currency$ | async) || 'USD') }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="lm-empty" *ngIf="statementData.transactions.length === 0">No transactions in this range.</div>
+          </ng-container>
+        </div>
+      </mat-tab>
+    </mat-tab-group>
   `,
   styles: [`
-    .bank-dashboard { color: white; padding-bottom: 20px; }
-    .tabs { display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 10px; }
-    .tabs button { background: none; border: none; color: var(--text-secondary); padding: 10px 20px; cursor: pointer; font-size: 1rem; border-radius: 10px; transition: all 0.2s; display: flex; align-items: center; gap: 8px; }
-    .tabs button.active { background: var(--accent-primary); color: white; }
-    
-    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-    .add-btn { background: var(--accent-secondary); color: white; border: none; padding: 10px 20px; border-radius: 10px; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 8px; }
-    
-    .bank-list, .transaction-list { display: grid; gap: 15px; }
-    .bank-card, .tx-card { background: rgba(255, 255, 255, 0.05); border: 1px solid var(--glass-border); border-radius: 20px; padding: 20px; display: flex; justify-content: space-between; align-items: center; }
-    .bank-card.closed { opacity: 0.5; filter: grayscale(1); }
-    
-    .bank-info h3 { margin: 0; color: var(--accent-secondary); }
-    .acc-num { font-family: monospace; color: var(--text-secondary); margin: 5px 0; }
-    .acc-name { font-size: 0.9rem; opacity: 0.8; margin: 0; }
-    .acc-type { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px; opacity: 0.7; background: rgba(255,255,255,0.1); padding: 2px 8px; border-radius: 4px; display: inline-block; margin-bottom: 5px; }
-    
-    .bank-balance { text-align: right; }
-    .bank-balance .label { font-size: 0.8rem; color: var(--text-secondary); margin: 0; }
-    .bank-balance .amount { margin: 5px 0; color: #4ade80; }
-    
-    .bank-actions, .tx-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 10px; }
-    .bank-actions button, .tx-actions button { background: rgba(255, 255, 255, 0.1); border: none; color: white; width: 35px; height: 35px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
-    .bank-actions button:hover, .tx-actions button:hover { background: rgba(255, 255, 255, 0.2); }
-    .delete-btn:hover { color: var(--accent-danger); }
+    :host { display: block; }
+    .loading { margin-bottom: 8px; }
+    .tabs { background: transparent; }
+    .tab-body { padding: 16px 0 24px; display: flex; flex-direction: column; gap: 16px; }
+    .section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    .section-head h2 { margin: 0; font-size: 1.1rem; font-weight: 600; }
 
-    /* Transaction Specific */
-    .tx-header { display: flex; align-items: center; gap: 10px; margin-bottom: 5px; }
-    .tx-type { font-size: 0.7rem; font-weight: 700; padding: 2px 6px; border-radius: 4px; background: rgba(247, 37, 133, 0.2); color: var(--accent-primary); }
-    .tx-type.credit { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
-    .tx-date { font-size: 0.8rem; color: var(--text-secondary); }
-    .tx-details { margin: 5px 0; font-size: 0.95rem; }
-    .tx-bank { font-size: 0.75rem; color: var(--accent-secondary); opacity: 0.8; margin: 0; }
-    .tx-amount { margin: 0; color: var(--accent-primary); font-size: 1.2rem; }
-    .tx-amount.credit { color: #4ade80; }
-    .tx-amount-actions { text-align: right; }
+    .account-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+    .account { display: flex; flex-direction: column; gap: 4px; }
+    .account.closed { opacity: 0.55; filter: grayscale(0.8); }
+    .acc-head { display: flex; gap: 8px; align-items: center; }
+    .acc-type { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px; padding: 2px 8px; border-radius: 6px; background: var(--surface-2); color: var(--text-secondary); }
+    .closed-tag { font-size: 0.7rem; color: var(--accent-danger); }
+    .account h3 { margin: 4px 0 0; font-size: 1rem; color: var(--accent-secondary); }
+    .acc-num { font-family: monospace; color: var(--text-secondary); }
+    .acc-foot { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-soft); display: flex; justify-content: space-between; align-items: flex-end; gap: 8px; }
+    .balance { font-size: 1.25rem; font-weight: 700; color: var(--accent-success); }
+    .acc-actions { display: flex; gap: 2px; }
 
-    /* Statement Specific */
-    .statement-filters { background: rgba(255, 255, 255, 0.05); border: 1px solid var(--glass-border); border-radius: 20px; padding: 20px; margin-bottom: 20px; }
-    .filter-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-bottom: 15px; }
-    .filter-group label { display: block; font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 5px; }
-    .text-input { width: 100%; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--glass-border); padding: 10px; border-radius: 10px; color: white; outline: none; }
-    .generate-btn { width: 100%; padding: 12px; background: var(--accent-primary); border: none; border-radius: 10px; color: white; font-weight: 600; cursor: pointer; }
-    .generate-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .table-wrap { overflow-x: auto; }
+    .data-table { width: 100%; background: transparent; border-collapse: collapse; }
+    .data-table th, .data-table td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border-soft); white-space: nowrap; }
+    .data-table th { color: var(--text-secondary); font-weight: 600; font-size: 0.85rem; }
+    .data-table .wrap { white-space: normal; max-width: 280px; }
+    .num { text-align: right !important; }
+    .actions-col { width: 96px; text-align: right; }
+    .type-badge { font-size: 0.7rem; font-weight: 700; padding: 2px 8px; border-radius: 6px; background: color-mix(in srgb, var(--accent-primary) 18%, transparent); color: var(--accent-primary); }
+    .type-badge.credit { background: color-mix(in srgb, var(--accent-success) 18%, transparent); color: var(--accent-success); }
+    td.lm-positive, td.lm-negative { font-weight: 600; }
 
-    .statement-summary { display: flex; gap: 20px; margin-bottom: 20px; }
-    .summary-item { flex: 1; background: rgba(255, 255, 255, 0.05); padding: 15px; border-radius: 15px; display: flex; flex-direction: column; gap: 5px; }
-    .summary-item .label { font-size: 0.8rem; color: var(--text-secondary); }
-    .summary-item .value { font-size: 1.2rem; font-weight: 600; }
-    .summary-item .value.highlight { color: var(--accent-secondary); }
+    .filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0 12px; align-items: start; }
+    .filters mat-form-field { width: 100%; }
+    .generate { height: 56px; }
+    .summary-strip { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .summary-strip .value { font-size: 1.2rem; font-weight: 700; }
+    .summary-strip .highlight { color: var(--accent-secondary); }
 
-    .statement-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; margin-top: 20px; }
-    .statement-table th { text-align: left; padding: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-secondary); }
-    .statement-table td { padding: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
-    .debit { color: var(--accent-primary); }
-    .credit { color: #4ade80; }
-
-    .loading-overlay {
-      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-      background: rgba(26, 26, 46, 0.7); backdrop-filter: blur(5px);
-      display: flex; align-items: center; justify-content: center;
-      z-index: 10; border-radius: 20px;
-    }
-    .spinner {
-      width: 40px; height: 40px;
-      border: 4px solid rgba(255, 255, 255, 0.1);
-      border-left-color: var(--accent-secondary);
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
-    }
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-
-    /* Responsive Design */
-    @media (max-width: 768px) {
-        .filter-row { grid-template-columns: 1fr; }
-        .tabs { overflow-x: auto; white-space: nowrap; padding-bottom: 5px; }
-        .tabs button { font-size: 0.9rem; padding: 8px 12px; }
-        
-        .bank-card { flex-direction: column; align-items: flex-start; gap: 15px; }
-        .bank-balance { text-align: left; width: 100%; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 10px; display: flex; justify-content: space-between; align-items: center; }
-        .bank-balance .label { display: none; }
-        .bank-actions { margin-top: 0; }
-        
-        .tx-card { flex-direction: column; align-items: flex-start; gap: 10px; }
-        .tx-amount-actions { width: 100%; display: flex; justify-content: space-between; align-items: center; margin-top: 5px; }
-        .tx-actions { margin-top: 0; }
-
-        .statement-summary { flex-direction: column; gap: 10px; }
-        .statement-table-wrapper { overflow-x: auto; }
-        .statement-table { min-width: 600px; }
+    @media (max-width: 767.98px) {
+      .summary-strip { grid-template-columns: 1fr; }
+      .generate { width: 100%; }
     }
   `]
 })
-export class BankDashboardComponent implements OnInit {
-  @ViewChild('bankForm') bankForm!: BankFormComponent;
-  @ViewChild('txForm') txForm!: BankTransactionFormComponent;
+export class BankDashboardComponent implements OnInit, OnDestroy {
+  readonly txColumns = ['date', 'details', 'account', 'type', 'amount', 'actions'];
 
-  activeTab: 'accounts' | 'transactions' | 'statement' = 'accounts';
-  banks$ = this.bankService.banks$;
+  tabIndex = 0;
   loading$ = this.bankService.loading$;
-  transactions$ = this.bankService.transactions$.pipe(
-    map(txs => [...txs].sort((a, b) => b.date.localeCompare(a.date)))
-  );
-
   currency$ = this.settingsService.currency$;
+
+  banks: Bank[] = [];
+  accountRows: AccountRow[] = [];
+  transactions: BankTransaction[] = [];
 
   statementFilter = {
     bankId: '',
-    startDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
-    endDate: new Date().toISOString().split('T')[0],
+    startDate: toLocalISODate(new Date(new Date().getFullYear(), new Date().getMonth(), 1)),
+    endDate: todayLocalISODate(),
     type: '',
     details: ''
   };
 
-  statementData: any = null;
-  private banks: Bank[] = [];
+  statementData: StatementData | null = null;
+
+  private sub?: Subscription;
 
   constructor(
     private bankService: BankService,
-    private settingsService: SettingsService
+    private settingsService: SettingsService,
+    private dialog: MatDialog,
+    private notify: NotifyService
   ) { }
 
   ngOnInit() {
-    this.banks$.subscribe(banks => this.banks = banks);
+    this.sub = combineLatest([this.bankService.banks$, this.bankService.transactions$]).subscribe(([banks, txs]) => {
+      this.banks = banks;
+      this.accountRows = banks.map(bank => ({
+        bank,
+        balance: this.bankService.computeBalance(bank, txs)
+      }));
+      this.transactions = [...txs].sort((a, b) => b.date.localeCompare(a.date));
+    });
   }
 
-  getBalance(bankId: string): Observable<number> {
-    return this.bankService.getBankBalance(bankId);
+  ngOnDestroy() {
+    this.sub?.unsubscribe();
+  }
+
+  openBankForm(bank?: Bank) {
+    this.dialog.open(BankFormComponent, { data: bank, width: 'min(560px, 94vw)', maxHeight: '92vh' });
+  }
+
+  openTxForm(tx?: BankTransaction) {
+    this.dialog.open(BankTransactionFormComponent, { data: tx, width: 'min(520px, 94vw)', maxHeight: '92vh' });
   }
 
   getBankInfo(bankId: string): string {
@@ -315,34 +312,39 @@ export class BankDashboardComponent implements OnInit {
   }
 
   closeBank(id: string) {
-    if (confirm('Are you sure you want to close this account? It will no longer appear in transaction dropdowns.')) {
-      this.bankService.closeBank(id);
-    }
+    this.notify.confirm({
+      title: 'Close account',
+      message: 'Are you sure you want to close this account? It will no longer appear in transaction dropdowns.',
+      confirmText: 'Close account',
+      danger: true
+    }).subscribe(confirmed => {
+      if (confirmed) this.bankService.closeBank(id);
+    });
   }
 
   deleteTransaction(id: string) {
-    if (confirm('Are you sure you want to delete this transaction?')) {
-      this.bankService.deleteTransaction(id);
-    }
+    this.notify.confirm({
+      title: 'Delete transaction',
+      message: 'Are you sure you want to delete this transaction?',
+      confirmText: 'Delete',
+      danger: true
+    }).subscribe(confirmed => {
+      if (confirmed) this.bankService.deleteTransaction(id);
+    });
   }
 
   generateStatement() {
-    this.bankService.getStatement(
-      this.statementFilter.bankId,
-      this.statementFilter.startDate,
-      this.statementFilter.endDate,
-      this.statementFilter.type,
-      this.statementFilter.details
-    ).subscribe(data => {
-      this.statementData = data;
-    });
+    const f = this.statementFilter;
+    this.bankService.getStatement(f.bankId, f.startDate, f.endDate, f.type, f.details)
+      .pipe(take(1))
+      .subscribe(data => this.statementData = data);
   }
 
   copyDetails(bank: Bank) {
     const details = `Account Name: ${bank.accountName}\nAccount Number: ${bank.accountNumber}\nBank Name: ${bank.bankName}\nHome Branch: ${bank.homeBranch}\nBank Zone: ${bank.branchZone}\nBank District: ${bank.branchDistrict}`;
-    navigator.clipboard.writeText(details).then(() => {
-      alert('Bank details copied to clipboard!');
-    });
+    navigator.clipboard.writeText(details).then(
+      () => this.notify.info('Bank details copied to clipboard!'),
+      () => this.notify.error('Could not copy bank details.')
+    );
   }
 }
-

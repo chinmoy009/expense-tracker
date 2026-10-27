@@ -1,11 +1,12 @@
 import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { MatButtonModule } from '@angular/material/button';
 import { SettingsService, Currency } from '../../services/settings.service';
 
 @Component({
   selector: 'app-currency-selector',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, MatButtonModule],
   templateUrl: './currency-selector.component.html',
   styleUrls: ['./currency-selector.component.css']
 })

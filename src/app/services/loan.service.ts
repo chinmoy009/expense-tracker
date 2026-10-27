@@ -4,6 +4,7 @@ import { map, filter } from 'rxjs/operators';
 import { SheetsService } from './sheets.service';
 import { GoogleApiService } from './google-api.service';
 import { LoanTransaction, LoanSummary } from '../models/loan.model';
+import { todayLocalISODate } from '../utils/date.util';
 
 @Injectable({
     providedIn: 'root'
@@ -62,7 +63,7 @@ export class LoanService {
             name: txData.name,
             userReceived: txData.userReceived || 0,
             userGave: txData.userGave || 0,
-            date: txData.date || new Date().toISOString().split('T')[0],
+            date: txData.date || todayLocalISODate(),
             medium: txData.medium || 'Cash',
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString()

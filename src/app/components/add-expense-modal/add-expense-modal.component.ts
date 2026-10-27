@@ -1,203 +1,110 @@
-import { Component, EventEmitter, Output, OnInit } from '@angular/core';
+import { Component, Inject, OnDestroy, OnInit, Optional } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ExpenseService } from '../../services/expense.service';
+import { MAT_DIALOG_DATA, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
+import { MatButtonModule } from '@angular/material/button';
+import { MatDatepickerModule } from '@angular/material/datepicker';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatIconModule } from '@angular/material/icon';
+import { MatInputModule } from '@angular/material/input';
+import { ExpenseService, Expense } from '../../services/expense.service';
 import { CategoryService, CategoryNode } from '../../services/category.service';
 import { SettingsService } from '../../services/settings.service';
+import { parseLocalISODate, toLocalISODate } from '../../utils/date.util';
+import { Subscription } from 'rxjs';
 
+/** Add or edit an expense. Opened through AppActionsService; data is the expense to edit, or undefined. */
 @Component({
   selector: 'app-add-expense-modal',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, MatDialogModule, MatButtonModule, MatDatepickerModule, MatFormFieldModule, MatIconModule, MatInputModule],
   template: `
-    <div class="modal-overlay" [class.active]="isOpen" (click)="close($event)">
-        <div class="glass-modal">
-            <div class="modal-header">
-                <h2>{{ editMode ? 'Edit Expense' : 'Add Expense' }}</h2>
-                <button class="close-modal" (click)="closeModal()"><i class="fa-solid fa-xmark"></i></button>
-            </div>
-            <form (ngSubmit)="onSubmit()">
-                <div class="input-group">
-                    <label>Amount</label>
-                    <div class="amount-input-wrapper">
-                        <span class="currency">{{ currencySymbol }}</span>
-                        <input type="text" [(ngModel)]="amountInput" name="amount" placeholder="0.00" class="amount-input" required autoFocus>
-                    </div>
-                    <div *ngIf="formulaError" class="error-msg">{{ formulaError }}</div>
-                </div>
+    <h2 mat-dialog-title>{{ editMode ? 'Edit expense' : 'Add expense' }}</h2>
 
-                <div class="input-group">
-                    <label>Date</label>
-                    <input type="date" [(ngModel)]="date" name="date" class="text-input" required>
-                </div>
-                
-                <div class="input-group">
-                    <label>Category</label>
-                    
-                    <!-- Breadcrumbs -->
-                    <div class="breadcrumbs" *ngIf="breadcrumbs.length > 0">
-                        <span (click)="resetCategory()" class="crumb root"><i class="fa-solid fa-house"></i></span>
-                        <span *ngFor="let crumb of breadcrumbs; let i = index" class="crumb" (click)="goToLevel(i)">
-                            / {{ crumb.name }}
-                        </span>
-                    </div>
+    <form (ngSubmit)="onSubmit()">
+      <mat-dialog-content class="content">
+        <mat-form-field appearance="outline" class="full">
+          <mat-label>Amount</mat-label>
+          <span matTextPrefix>{{ currencySymbol }}&nbsp;</span>
+          <input matInput name="amount" [(ngModel)]="amountInput" placeholder="0.00" autocomplete="off" required cdkFocusInitial>
+          <mat-hint>Formulas allowed, e.g. =12+8*2</mat-hint>
+        </mat-form-field>
+        <div *ngIf="formulaError" class="error-text" role="alert">{{ formulaError }}</div>
 
-                    <!-- Category Grid -->
-                    <div class="category-grid">
-                        <button 
-                            type="button" 
-                            *ngFor="let node of currentNodes"
-                            class="cat-btn" 
-                            [class.active]="selectedCategory === node.name" 
-                            (click)="selectNode(node)"
-                        >
-                            <i class="fa-solid fa-tag"></i> {{ node.name }}
-                            <i class="fa-solid fa-chevron-right small-icon" *ngIf="node.children.length > 0"></i>
-                        </button>
-                    </div>
-                    
-                    <div *ngIf="currentNodes.length === 0" class="no-cats">
-                        No categories found. Use the Category Manager to add some.
-                    </div>
-                </div>
+        <mat-form-field appearance="outline" class="full">
+          <mat-label>Date</mat-label>
+          <input matInput [matDatepicker]="datePicker" name="date" [(ngModel)]="dateValue" placeholder="Choose a date" required>
+          <mat-datepicker-toggle matIconSuffix [for]="datePicker"></mat-datepicker-toggle>
+          <mat-datepicker #datePicker></mat-datepicker>
+        </mat-form-field>
 
-                <div class="input-group">
-                    <label>Note</label>
-                    <input type="text" [(ngModel)]="note" name="note" placeholder="What was it for?" class="text-input">
-                </div>
+        <div class="field-label">Category</div>
+        <nav class="crumbs" *ngIf="breadcrumbs.length > 0" aria-label="Category path">
+          <button type="button" class="crumb" (click)="resetCategory()" aria-label="Top level categories">
+            <mat-icon>home</mat-icon>
+          </button>
+          <ng-container *ngFor="let crumb of breadcrumbs; let i = index">
+            <span class="sep">/</span>
+            <button type="button" class="crumb" (click)="goToLevel(i)">{{ crumb.name }}</button>
+          </ng-container>
+        </nav>
 
-                <button type="submit" class="save-btn" [disabled]="!amountInput || !selectedCategory || !date">
-                    {{ editMode ? 'Update Expense' : 'Save Expense' }}
-                </button>
-            </form>
+        <div class="cat-grid" *ngIf="currentNodes.length > 0">
+          <button
+            type="button"
+            *ngFor="let node of currentNodes"
+            class="cat-btn"
+            [class.active]="selectedCategory === node.name"
+            [attr.aria-pressed]="selectedCategory === node.name"
+            (click)="selectNode(node)">
+            <mat-icon>{{ node.children.length > 0 ? 'folder' : 'label' }}</mat-icon>
+            <span>{{ node.name }}</span>
+          </button>
         </div>
-    </div>
+        <div *ngIf="currentNodes.length === 0" class="lm-muted">
+          No categories found. Use the Categories panel to add some.
+        </div>
+
+        <mat-form-field appearance="outline" class="full">
+          <mat-label>Note</mat-label>
+          <input matInput name="note" [(ngModel)]="note" placeholder="What was it for?">
+        </mat-form-field>
+      </mat-dialog-content>
+
+      <mat-dialog-actions align="end">
+        <button mat-button type="button" (click)="dialogRef.close()">Cancel</button>
+        <button mat-flat-button color="primary" type="submit" [disabled]="!amountInput || !selectedCategory || !dateValue">
+          {{ editMode ? 'Update expense' : 'Save expense' }}
+        </button>
+      </mat-dialog-actions>
+    </form>
   `,
   styles: [`
-    .modal-overlay {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0,0,0,0.8);
-        backdrop-filter: blur(5px);
-        z-index: 1000;
-        display: flex;
-        align-items: flex-end;
-        opacity: 0;
-        pointer-events: none;
-        transition: opacity 0.3s ease;
-    }
-    .modal-overlay.active { opacity: 1; pointer-events: all; }
-    .glass-modal {
-        width: 100%;
-        max-width: 480px;
-        margin: 0 auto;
-        background: #1a1a2e;
-        border-radius: 30px 30px 0 0;
-        padding: 30px;
-        border-top: 1px solid var(--glass-border);
-        transform: translateY(100%);
-        transition: transform 0.3s cubic-bezier(0.19, 1, 0.22, 1);
-        
-        /* Responsive Layout */
-        max-height: 90vh;
-        display: flex;
-        flex-direction: column;
-    }
-    .modal-overlay.active .glass-modal { transform: translateY(0); }
-    
-    .modal-header { 
-        display: flex; 
-        justify-content: space-between; 
-        align-items: center; 
-        margin-bottom: 20px;
-        flex-shrink: 0; /* Prevent header from shrinking */
-    }
-    .close-modal { background: none; border: none; color: var(--text-secondary); font-size: 1.5rem; cursor: pointer; }
-    
-    /* Scrollable Form */
-    form {
-        flex: 1;
-        overflow-y: auto;
-        padding-right: 5px; /* Avoid scrollbar overlap */
-        display: flex;
-        flex-direction: column;
-    }
-    /* Custom Scrollbar */
-    form::-webkit-scrollbar { width: 4px; }
-    form::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); }
-    form::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 2px; }
-
-    .error-msg { color: var(--accent-danger); font-size: 0.8rem; margin-top: 5px; }
-
-    .input-group { margin-bottom: 20px; }
-    .input-group label { display: block; color: var(--text-secondary); margin-bottom: 10px; font-size: 0.9rem; }
-    .amount-input-wrapper { display: flex; align-items: center; border-bottom: 2px solid var(--glass-border); padding-bottom: 10px; }
-    .currency { font-size: 2rem; color: var(--accent-primary); margin-right: 10px; }
-    .amount-input { background: none; border: none; color: white; font-size: 2.5rem; font-weight: 700; width: 100%; outline: none; font-family: var(--font-main); }
-    .text-input { width: 100%; background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); padding: 15px; border-radius: 15px; color: white; font-family: var(--font-main); outline: none; }
-    
-    .save-btn { 
-        width: 100%; padding: 18px; background: var(--accent-primary); border: none; border-radius: 15px; 
-        color: white; font-size: 1.1rem; font-weight: 600; cursor: pointer; margin-top: auto; /* Push to bottom if space allows */
-        box-shadow: 0 5px 20px rgba(247, 37, 133, 0.3); 
-        flex-shrink: 0;
-    }
-    .save-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
-    /* Category Specific */
-    .breadcrumbs { margin-bottom: 10px; color: var(--text-secondary); font-size: 0.9rem; }
-    .crumb { cursor: pointer; transition: color 0.2s; }
-    .crumb:hover { color: white; }
-    .crumb.root { color: var(--accent-primary); }
-    
-    .category-grid { 
-        display: grid; 
-        grid-template-columns: repeat(3, 1fr); 
-        gap: 10px; 
-        max-height: 250px; /* Limit height */
-        overflow-y: auto;
-        padding-right: 5px;
-    }
-    .category-grid::-webkit-scrollbar { width: 4px; }
-    .category-grid::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); }
-    .category-grid::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 2px; }
-
+    .content { display: flex; flex-direction: column; gap: 4px; }
+    .full { width: 100%; }
+    .error-text { color: var(--accent-danger); font-size: 0.85rem; margin: -8px 0 8px; }
+    .field-label { font-size: 0.875rem; color: var(--text-secondary); margin: 8px 0; }
+    .crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-bottom: 8px; }
+    .crumb { background: none; border: none; color: var(--accent-secondary); cursor: pointer; padding: 2px 4px; border-radius: 6px; font: inherit; }
+    .crumb:hover { background: var(--surface-2); }
+    .sep { color: var(--text-muted); }
+    .cat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; max-height: 220px; overflow-y: auto; margin-bottom: 12px; padding: 2px; }
     .cat-btn {
-        background: rgba(255,255,255,0.05); border: 1px solid transparent; color: var(--text-secondary);
-        padding: 12px 8px; border-radius: 12px; display: flex; flex-direction: column; align-items: center; gap: 5px; 
-        cursor: pointer; transition: all 0.2s; position: relative; text-align: center; font-size: 0.9rem;
+      display: flex; align-items: center; gap: 8px; padding: 10px; border-radius: 12px; cursor: pointer;
+      background: var(--surface-2); border: 1px solid transparent; color: var(--text-secondary); font: inherit; text-align: left;
     }
-    .cat-btn:hover { background: rgba(255,255,255,0.1); }
-    .cat-btn.active { background: rgba(76, 201, 240, 0.1); border-color: var(--accent-secondary); color: var(--accent-secondary); }
-    .small-icon { font-size: 0.7rem; position: absolute; right: 5px; bottom: 5px; opacity: 0.5; }
-    .no-cats { color: var(--text-secondary); font-style: italic; text-align: center; padding: 10px; }
-
-    /* Mobile Adjustments */
-    @media (max-width: 480px) {
-        .glass-modal {
-            padding: 20px;
-            max-height: 85vh; /* Slightly smaller on mobile */
-        }
-        .category-grid {
-            grid-template-columns: repeat(2, 1fr); /* 2 columns on mobile */
-            max-height: 200px;
-        }
-        .amount-input { font-size: 2rem; }
-        .save-btn { padding: 15px; }
-    }
+    .cat-btn:hover { color: var(--text-primary); }
+    .cat-btn.active { border-color: var(--accent-secondary); color: var(--accent-secondary); background: color-mix(in srgb, var(--accent-secondary) 12%, transparent); }
+    .cat-btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   `]
 })
-export class AddExpenseModalComponent implements OnInit {
-  @Output() closeEvent = new EventEmitter<void>();
-  isOpen = false;
+export class AddExpenseModalComponent implements OnInit, OnDestroy {
+  private subs: Subscription[] = [];
 
   amountInput: string = '';
   formulaError: string | null = null;
   note: string = '';
-  date: string = new Date().toISOString().split('T')[0];
+  dateValue: Date | null = new Date();
   currencySymbol: string = '$';
 
   // Category Logic
@@ -211,60 +118,39 @@ export class AddExpenseModalComponent implements OnInit {
   editingId: number | null = null;
 
   constructor(
+    @Optional() @Inject(MAT_DIALOG_DATA) private expenseToEdit: Expense | undefined,
+    public dialogRef: MatDialogRef<AddExpenseModalComponent>,
     private expenseService: ExpenseService,
     private categoryService: CategoryService,
     private settingsService: SettingsService
   ) { }
 
   ngOnInit() {
-    this.categoryService.categories$.subscribe(cats => {
+    this.subs.push(this.categoryService.categories$.subscribe(cats => {
       this.rootCategories = cats;
-      // Don't reset category here if we are in edit mode and just opened
-    });
+      if (this.breadcrumbs.length === 0) {
+        this.currentNodes = cats;
+      }
+    }));
 
-    this.settingsService.currency$.subscribe(c => {
+    this.subs.push(this.settingsService.currency$.subscribe(c => {
       this.currencySymbol = this.settingsService.getCurrencySymbol(c);
-    });
-  }
+    }));
 
-  open(expenseToEdit?: any) {
-    this.isOpen = true;
-    if (expenseToEdit) {
+    if (this.expenseToEdit) {
       this.editMode = true;
-      this.editingId = expenseToEdit.id;
-      this.amountInput = expenseToEdit.amount.toString();
-      this.note = expenseToEdit.note;
-      this.date = expenseToEdit.date;
-      this.selectedCategory = expenseToEdit.category;
-      // We need to set breadcrumbs/currentNodes to match the selected category
-      // For simplicity, we'll just show the root and let them re-select if they want to change
-      // Or we could try to find the path.
+      this.editingId = this.expenseToEdit.id;
+      this.amountInput = this.expenseToEdit.amount.toString();
+      this.note = this.expenseToEdit.note;
+      this.dateValue = parseLocalISODate(this.expenseToEdit.date);
+      this.selectedCategory = this.expenseToEdit.category;
+      // Breadcrumb path is not restored; the user re-selects if they want to change category
       this.currentNodes = this.rootCategories;
-    } else {
-      this.resetForm();
     }
   }
 
-  closeModal() {
-    this.isOpen = false;
-    this.closeEvent.emit();
-    this.resetForm();
-  }
-
-  close(event: MouseEvent) {
-    if (event.target === event.currentTarget) {
-      this.closeModal();
-    }
-  }
-
-  resetForm() {
-    this.editMode = false;
-    this.editingId = null;
-    this.amountInput = '';
-    this.formulaError = null;
-    this.note = '';
-    this.date = new Date().toISOString().split('T')[0];
-    this.resetCategory();
+  ngOnDestroy() {
+    this.subs.forEach(sub => sub.unsubscribe());
   }
 
   // Navigation
@@ -374,24 +260,25 @@ export class AddExpenseModalComponent implements OnInit {
       return;
     }
 
-    if (this.selectedCategory && this.date) {
+    if (this.selectedCategory && this.dateValue) {
+      const date = toLocalISODate(this.dateValue);
       if (this.editMode && this.editingId) {
         this.expenseService.updateExpense({
           id: this.editingId,
           amount: evaluatedAmount,
           category: this.selectedCategory,
           note: this.note,
-          date: this.date
+          date
         });
       } else {
         this.expenseService.addExpense({
           amount: evaluatedAmount,
           category: this.selectedCategory,
           note: this.note,
-          date: this.date
+          date
         });
       }
-      this.closeModal();
+      this.dialogRef.close();
     }
   }
 }

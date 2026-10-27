@@ -1,0 +1,150 @@
+@use '@angular/material' as mat;
+
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
+
+// Material themes: light is the default, dark is applied via [data-theme='dark'] on <html>
+$lumina-primary: mat.define-palette(mat.$pink-palette);
+$lumina-accent: mat.define-palette(mat.$cyan-palette);
+$lumina-typography: mat.define-typography-config($font-family: 'Outfit, sans-serif');
+$lumina-light: mat.define-light-theme((
+  color: (primary: $lumina-primary, accent: $lumina-accent),
+  typography: $lumina-typography,
+  density: 0
+));
+$lumina-dark: mat.define-dark-theme((
+  color: (primary: $lumina-primary, accent: $lumina-accent),
+  typography: $lumina-typography,
+  density: 0
+));
+
+html {
+  @include mat.core();
+  @include mat.all-component-themes($lumina-light);
+}
+
+html[data-theme='dark'] {
+  @include mat.all-component-colors($lumina-dark);
+}
+
+// Design tokens. Components read these; never hardcode colors in components.
+:root,
+html[data-theme='light'] {
+  color-scheme: light;
+  --bg: #f4f5fb;
+  --bg-glow: radial-gradient(circle at 20% 0%, rgba(76, 201, 240, 0.12), transparent 50%);
+  --surface: #ffffff;
+  --surface-2: #f0f1f8;
+  --glass-bg: #ffffff;
+  --glass-border: rgba(20, 18, 43, 0.12);
+  --border-soft: rgba(20, 18, 43, 0.07);
+  --text-primary: #14122b;
+  --text-secondary: rgba(20, 18, 43, 0.72);
+  --text-muted: rgba(20, 18, 43, 0.6);
+  --accent-primary: #c2185b;
+  --accent-secondary: #0b7aa3;
+  --accent-danger: #c2185b;
+  --accent-success: #15803d;
+  --accent-contrast: #ffffff;
+  --shadow: 0 1px 2px rgba(20, 18, 43, 0.06), 0 4px 16px rgba(20, 18, 43, 0.06);
+  --chart-label: #14122b;
+  --font-main: 'Outfit', sans-serif;
+}
+
+html[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #0d0b1f;
+  --bg-glow: radial-gradient(circle at 20% 0%, rgba(76, 201, 240, 0.12), transparent 50%);
+  --surface: #171532;
+  --surface-2: #1f1d3f;
+  --glass-bg: rgba(255, 255, 255, 0.05);
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --border-soft: rgba(255, 255, 255, 0.06);
+  --text-primary: #ffffff;
+  --text-secondary: rgba(255, 255, 255, 0.72);
+  --text-muted: rgba(255, 255, 255, 0.6);
+  --accent-primary: #f72585;
+  --accent-secondary: #4cc9f0;
+  --accent-danger: #f72585;
+  --accent-success: #4ade80;
+  --accent-contrast: #ffffff;
+  --shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  --chart-label: rgba(255, 255, 255, 0.85);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--font-main);
+  background: var(--bg);
+  background-image: var(--bg-glow);
+  background-attachment: fixed;
+  color: var(--text-primary);
+  min-height: 100vh;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+// Shared building blocks used by page components
+.lm-card {
+  background: var(--surface);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  padding: 20px;
+}
+
+.lm-page-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.lm-muted {
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+}
+
+.lm-amount {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.lm-positive { color: var(--accent-success); }
+.lm-negative { color: var(--accent-primary); }
+
+.lm-empty {
+  text-align: center;
+  padding: 40px 16px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+// Native focus ring for keyboard users
+:focus-visible {
+  outline: 2px solid var(--accent-secondary);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+// Snackbar used for error messages
+.lm-snack-error {
+  --mdc-snackbar-container-color: #b3261e;
+  --mdc-snackbar-supporting-text-color: #ffffff;
+}
+
+// Paginator sits on the card surface, not Material's default grey in dark mode
+.mat-mdc-paginator {
+  background: transparent;
+  color: var(--text-secondary);
+}

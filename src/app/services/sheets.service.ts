@@ -4,6 +4,7 @@ import { Expense } from './expense.service';
 import { GoogleApiService } from './google-api.service';
 import { Bank, BankTransaction } from '../models/bank.model';
 import { LoanTransaction } from '../models/loan.model';
+import { NotifyService } from '../shared/notify/notify.service';
 
 declare var gapi: any;
 
@@ -14,7 +15,10 @@ export class SheetsService {
 
   private expensesSheetName: string = 'Spending';
 
-  constructor(private googleApiService: GoogleApiService) { }
+  constructor(
+    private googleApiService: GoogleApiService,
+    private notify: NotifyService
+  ) { }
 
   async getExpenses(): Promise<Expense[]> {
     await this.googleApiService.ensureInitialized();
@@ -418,7 +422,7 @@ export class SheetsService {
       const token = gapi.client.getToken();
       if (!token) {
         console.error('DEBUG: No Access Token found!');
-        alert('Please sign in with Google first.');
+        this.notify.error('Please sign in with Google first.');
         return 0;
       }
       console.log('DEBUG: Access Token present.');

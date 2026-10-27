@@ -1,87 +1,51 @@
 import { Component, Input } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { SettingsService, Currency } from '../../services/settings.service';
+import { MatIconModule } from '@angular/material/icon';
+import { SettingsService } from '../../services/settings.service';
+import { Observable } from 'rxjs';
 
+/** KPI tile. Shows a currency amount, or a plain count when isCount is set. */
 @Component({
-    selector: 'app-summary-card',
-    standalone: true,
-    imports: [CommonModule],
-    template: `
-    <div class="glass-card" [ngClass]="className">
-        <div class="card-icon"><i [class]="icon"></i></div>
-        <h3>{{ title }}</h3>
-        <p class="amount">{{ amount | currency:currencyCode }}</p>
-        <div class="trend positive" *ngIf="trend">{{ trend }}</div>
-        <div class="progress-bar-container" *ngIf="showProgress">
-            <div class="progress-bar" [style.width]="progress + '%'"></div>
+  selector: 'app-summary-card',
+  standalone: true,
+  imports: [CommonModule, MatIconModule],
+  template: `
+    <div class="kpi lm-card">
+      <div class="kpi-icon" aria-hidden="true"><mat-icon>{{ icon }}</mat-icon></div>
+      <div class="kpi-body">
+        <div class="kpi-label">{{ label }}</div>
+        <div class="kpi-value lm-amount">
+          <ng-container *ngIf="isCount; else money">{{ amount | number:'1.0-0' }}</ng-container>
+          <ng-template #money>{{ amount | currency:((currency$ | async) || 'USD') }}</ng-template>
         </div>
+        <div class="kpi-hint lm-muted" *ngIf="hint">{{ hint }}</div>
+      </div>
     </div>
   `,
-    styles: [`
-    .glass-card {
-        background: var(--glass-bg);
-        backdrop-filter: blur(16px);
-        -webkit-backdrop-filter: blur(16px);
-        border: 1px solid var(--glass-border);
-        border-radius: 24px;
-        padding: 20px;
-        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-        height: 100%;
+  styles: [`
+    :host { display: block; }
+    .kpi { display: flex; align-items: center; gap: 16px; height: 100%; }
+    .kpi-icon {
+      width: 44px; height: 44px; border-radius: 12px; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      background: color-mix(in srgb, var(--accent-secondary) 14%, transparent);
+      color: var(--accent-secondary);
     }
-    .card-icon {
-        width: 40px;
-        height: 40px;
-        border-radius: 12px;
-        background: rgba(255, 255, 255, 0.1);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        margin-bottom: 15px;
-        font-size: 1.2rem;
-    }
-    .total-balance .card-icon { color: var(--accent-secondary); }
-    .daily-spend .card-icon { color: var(--accent-primary); }
-    h3 {
-        font-size: 0.85rem;
-        color: var(--text-secondary);
-        font-weight: 400;
-        margin-bottom: 5px;
-    }
-    .amount {
-        font-size: 1.4rem;
-        font-weight: 700;
-        margin-bottom: 10px;
-    }
-    .trend {
-        font-size: 0.75rem;
-        color: #4ade80;
-    }
-    .progress-bar-container {
-        width: 100%;
-        height: 6px;
-        background: rgba(255,255,255,0.1);
-        border-radius: 3px;
-        overflow: hidden;
-    }
-    .progress-bar {
-        height: 100%;
-        background: var(--accent-primary);
-        border-radius: 3px;
-    }
+    .kpi-label { font-size: 0.8rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.6px; }
+    .kpi-value { font-size: 1.5rem; font-weight: 700; margin-top: 2px; }
+    .kpi-hint { margin-top: 2px; font-size: 0.8rem; }
   `]
 })
 export class SummaryCardComponent {
-    @Input() title: string = '';
-    @Input() amount: number = 0;
-    @Input() icon: string = '';
-    @Input() trend: string = '';
-    @Input() className: string = '';
-    @Input() showProgress: boolean = false;
-    @Input() progress: number = 0;
+  @Input() label = '';
+  @Input() amount = 0;
+  @Input() icon = 'insights';
+  @Input() hint = '';
+  @Input() isCount = false;
 
-    currencyCode: string = 'USD';
+  currency$: Observable<string>;
 
-    constructor(private settingsService: SettingsService) {
-        this.settingsService.currency$.subscribe(c => this.currencyCode = c);
-    }
+  constructor(private settingsService: SettingsService) {
+    this.currency$ = this.settingsService.currency$;
+  }
 }

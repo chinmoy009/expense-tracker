@@ -4,6 +4,7 @@ import { filter, take } from 'rxjs/operators';
 import { SheetsService } from './sheets.service';
 import { ExpenseService } from './expense.service';
 import { GoogleApiService } from './google-api.service';
+import { NotifyService } from '../shared/notify/notify.service';
 
 export interface CategoryNode {
   id: string;
@@ -19,18 +20,29 @@ export class CategoryService {
   private categoriesSubject = new BehaviorSubject<CategoryNode[]>([]);
   categories$ = this.categoriesSubject.asObservable();
 
+  /** Current category tree, synchronously. */
+  snapshot(): CategoryNode[] {
+    return this.categoriesSubject.value;
+  }
+
   private flatCategories: any[] = [];
   private isInitialized = false;
+  private signedIn = false;
+  private readonly storageKey = 'lumina_categories';
 
   constructor(
     private sheetsService: SheetsService,
     private expenseService: ExpenseService,
-    private googleApiService: GoogleApiService
+    private googleApiService: GoogleApiService,
+    private notify: NotifyService
   ) {
-    this.googleApiService.user$.pipe(
-      filter(user => !!user)
-    ).subscribe(() => {
-      this.init();
+    this.googleApiService.user$.subscribe(user => {
+      this.signedIn = !!user;
+      if (user) {
+        this.init();
+      } else {
+        this.loadLocal();
+      }
     });
   }
 
@@ -47,6 +59,18 @@ export class CategoryService {
   private async loadCategories() {
     this.flatCategories = await this.sheetsService.getCategories();
     this.buildTree();
+  }
+
+  // Signed-out mode: categories live in localStorage so expenses can still be added
+  private loadLocal() {
+    this.isInitialized = false;
+    const saved = localStorage.getItem(this.storageKey);
+    this.flatCategories = saved ? JSON.parse(saved) : [];
+    this.buildTree();
+  }
+
+  private saveLocal() {
+    localStorage.setItem(this.storageKey, JSON.stringify(this.flatCategories));
   }
 
   private buildTree() {
@@ -99,10 +123,13 @@ export class CategoryService {
     if (exists) return;
 
     const id = Date.now().toString(36) + Math.random().toString(36).substr(2);
-    await this.sheetsService.addCategory(id, name, parentId);
+    if (this.signedIn) {
+      await this.sheetsService.addCategory(id, name, parentId);
+    }
 
     // Refresh local state
     this.flatCategories.push({ id, name, parentId });
+    if (!this.signedIn) this.saveLocal();
     this.buildTree();
   }
 
@@ -111,10 +138,13 @@ export class CategoryService {
     if (!category) return;
 
     const oldName = category.name;
-    await this.sheetsService.updateCategory(id, newName);
+    if (this.signedIn) {
+      await this.sheetsService.updateCategory(id, newName);
+    }
 
     // Update local state
     category.name = newName;
+    if (!this.signedIn) this.saveLocal();
     this.buildTree();
 
     // Update expenses that use this category
@@ -141,21 +171,24 @@ export class CategoryService {
     });
 
     if (isUsed) {
-      alert(`Cannot delete category "${category.name}" because it is used in expenses.`);
+      this.notify.error(`Cannot delete category "${category.name}" because it is used in expenses.`);
       return false;
     }
 
     // Check if has children
     const hasChildren = this.flatCategories.some(c => c.parentId === id);
     if (hasChildren) {
-      alert(`Cannot delete category "${category.name}" because it has sub-categories.`);
+      this.notify.error(`Cannot delete category "${category.name}" because it has sub-categories.`);
       return false;
     }
 
-    await this.sheetsService.deleteCategory(id);
+    if (this.signedIn) {
+      await this.sheetsService.deleteCategory(id);
+    }
 
     // Update local state
     this.flatCategories = this.flatCategories.filter(c => c.id !== id);
+    if (!this.signedIn) this.saveLocal();
     this.buildTree();
     return true;
   }

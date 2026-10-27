@@ -4,6 +4,8 @@ import { map, take, filter } from 'rxjs/operators';
 import { SheetsService } from './sheets.service';
 import { GoogleApiService } from './google-api.service';
 import { Bank, BankTransaction } from '../models/bank.model';
+import { todayLocalISODate } from '../utils/date.util';
+import { NotifyService } from '../shared/notify/notify.service';
 
 @Injectable({
     providedIn: 'root'
@@ -22,7 +24,8 @@ export class BankService {
 
     constructor(
         private sheetsService: SheetsService,
-        private googleApiService: GoogleApiService
+        private googleApiService: GoogleApiService,
+        private notify: NotifyService
     ) {
         this.googleApiService.user$.pipe(
             filter(user => !!user)
@@ -50,7 +53,7 @@ export class BankService {
             this.transactionsSubject.next(transactions);
         } catch (error) {
             console.error('Error loading bank data:', error);
-            alert('Failed to load bank data. Please check your connection.');
+            this.notify.error('Failed to load bank data. Please check your connection.');
         } finally {
             this.loadingSubject.next(false);
         }
@@ -128,7 +131,7 @@ export class BankService {
             bankId: txData.bankId || '',
             type: txData.type || 'DEBIT',
             amount: txData.amount || 0,
-            date: txData.date || new Date().toISOString().split('T')[0],
+            date: txData.date || todayLocalISODate(),
             details: txData.details || '',
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
@@ -159,24 +162,27 @@ export class BankService {
 
     // --- Calculations ---
 
+    /** Opening balance plus credits minus debits for one account. */
+    computeBalance(bank: Bank, transactions: BankTransaction[]): number {
+        const txs = transactions.filter(t => t.bankId === bank.id);
+        const totalCredit = txs.filter(t => t.type === 'CREDIT').reduce((sum, t) => sum + t.amount, 0);
+        const totalDebit = txs.filter(t => t.type === 'DEBIT').reduce((sum, t) => sum + t.amount, 0);
+        return bank.openingBalance + totalCredit - totalDebit;
+    }
+
     getBankBalance(bankId: string): Observable<number> {
         return combineLatest([this.banks$, this.transactions$]).pipe(
             map(([banks, transactions]) => {
                 const bank = banks.find(b => b.id === bankId);
                 if (!bank) return 0;
-
-                const txs = transactions.filter(t => t.bankId === bankId);
-                const totalCredit = txs.filter(t => t.type === 'CREDIT').reduce((sum, t) => sum + t.amount, 0);
-                const totalDebit = txs.filter(t => t.type === 'DEBIT').reduce((sum, t) => sum + t.amount, 0);
-
-                return bank.openingBalance + totalCredit - totalDebit;
+                return this.computeBalance(bank, transactions);
             })
         );
     }
 
     getStatement(bankId: string, startDate: string, endDate: string, type?: string, details?: string): Observable<{
         openingBalance: number,
-        transactions: BankTransaction[],
+        transactions: (BankTransaction & { runningBalance: number })[],
         closingBalance: number
     }> {
         return combineLatest([this.banks$, this.transactions$]).pipe(
@@ -192,32 +198,27 @@ export class BankService {
                 const beforeDebit = beforeTxs.filter(t => t.type === 'DEBIT').reduce((sum, t) => sum + t.amount, 0);
                 const openingBalanceAtStart = bank.openingBalance + beforeCredit - beforeDebit;
 
-                // Filter transactions in range
-                let rangeTxs = allTxs.filter(t => t.date >= startDate && t.date <= endDate);
-
-                // Apply additional filters
-                if (type) {
-                    rangeTxs = rangeTxs.filter(t => t.type === type);
-                }
-                if (details) {
-                    const search = details.toLowerCase();
-                    rangeTxs = rangeTxs.filter(t => t.details.toLowerCase().includes(search));
-                }
-
-                // Calculate running balances for statement
+                // Running balance is computed over the full range so every row shows the real balance
+                const rangeTxs = allTxs.filter(t => t.date >= startDate && t.date <= endDate);
                 let currentBalance = openingBalanceAtStart;
-                const statementTransactions = rangeTxs.map(t => {
-                    if (t.type === 'CREDIT') {
-                        currentBalance += t.amount;
-                    } else {
-                        currentBalance -= t.amount;
-                    }
+                const runningRows = rangeTxs.map(t => {
+                    currentBalance += t.type === 'CREDIT' ? t.amount : -t.amount;
                     return { ...t, runningBalance: currentBalance };
                 });
 
+                // Type and details filters only control which rows are displayed
+                let visibleRows = runningRows;
+                if (type) {
+                    visibleRows = visibleRows.filter(t => t.type === type);
+                }
+                if (details) {
+                    const search = details.toLowerCase();
+                    visibleRows = visibleRows.filter(t => t.details.toLowerCase().includes(search));
+                }
+
                 return {
                     openingBalance: openingBalanceAtStart,
-                    transactions: statementTransactions,
+                    transactions: visibleRows,
                     closingBalance: currentBalance
                 };
             })
