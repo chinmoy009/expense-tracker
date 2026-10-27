@@ -3,20 +3,21 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MAT_DIALOG_DATA, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
 import { MatButtonModule } from '@angular/material/button';
+import { MatDatepickerModule } from '@angular/material/datepicker';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { ExpenseService, Expense } from '../../services/expense.service';
 import { CategoryService, CategoryNode } from '../../services/category.service';
 import { SettingsService } from '../../services/settings.service';
-import { todayLocalISODate } from '../../utils/date.util';
+import { parseLocalISODate, toLocalISODate } from '../../utils/date.util';
 import { Subscription } from 'rxjs';
 
 /** Add or edit an expense. Opened through AppActionsService; data is the expense to edit, or undefined. */
 @Component({
   selector: 'app-add-expense-modal',
   standalone: true,
-  imports: [CommonModule, FormsModule, MatDialogModule, MatButtonModule, MatFormFieldModule, MatIconModule, MatInputModule],
+  imports: [CommonModule, FormsModule, MatDialogModule, MatButtonModule, MatDatepickerModule, MatFormFieldModule, MatIconModule, MatInputModule],
   template: `
     <h2 mat-dialog-title>{{ editMode ? 'Edit expense' : 'Add expense' }}</h2>
 
@@ -32,7 +33,9 @@ import { Subscription } from 'rxjs';
 
         <mat-form-field appearance="outline" class="full">
           <mat-label>Date</mat-label>
-          <input matInput type="date" name="date" [(ngModel)]="date" required>
+          <input matInput [matDatepicker]="datePicker" name="date" [(ngModel)]="dateValue" placeholder="Choose a date" required>
+          <mat-datepicker-toggle matIconSuffix [for]="datePicker"></mat-datepicker-toggle>
+          <mat-datepicker #datePicker></mat-datepicker>
         </mat-form-field>
 
         <div class="field-label">Category</div>
@@ -70,7 +73,7 @@ import { Subscription } from 'rxjs';
 
       <mat-dialog-actions align="end">
         <button mat-button type="button" (click)="dialogRef.close()">Cancel</button>
-        <button mat-flat-button color="primary" type="submit" [disabled]="!amountInput || !selectedCategory || !date">
+        <button mat-flat-button color="primary" type="submit" [disabled]="!amountInput || !selectedCategory || !dateValue">
           {{ editMode ? 'Update expense' : 'Save expense' }}
         </button>
       </mat-dialog-actions>
@@ -101,7 +104,7 @@ export class AddExpenseModalComponent implements OnInit, OnDestroy {
   amountInput: string = '';
   formulaError: string | null = null;
   note: string = '';
-  date: string = todayLocalISODate();
+  dateValue: Date | null = new Date();
   currencySymbol: string = '$';
 
   // Category Logic
@@ -139,7 +142,7 @@ export class AddExpenseModalComponent implements OnInit, OnDestroy {
       this.editingId = this.expenseToEdit.id;
       this.amountInput = this.expenseToEdit.amount.toString();
       this.note = this.expenseToEdit.note;
-      this.date = this.expenseToEdit.date;
+      this.dateValue = parseLocalISODate(this.expenseToEdit.date);
       this.selectedCategory = this.expenseToEdit.category;
       // Breadcrumb path is not restored; the user re-selects if they want to change category
       this.currentNodes = this.rootCategories;
@@ -257,21 +260,22 @@ export class AddExpenseModalComponent implements OnInit, OnDestroy {
       return;
     }
 
-    if (this.selectedCategory && this.date) {
+    if (this.selectedCategory && this.dateValue) {
+      const date = toLocalISODate(this.dateValue);
       if (this.editMode && this.editingId) {
         this.expenseService.updateExpense({
           id: this.editingId,
           amount: evaluatedAmount,
           category: this.selectedCategory,
           note: this.note,
-          date: this.date
+          date
         });
       } else {
         this.expenseService.addExpense({
           amount: evaluatedAmount,
           category: this.selectedCategory,
           note: this.note,
-          date: this.date
+          date
         });
       }
       this.dialogRef.close();

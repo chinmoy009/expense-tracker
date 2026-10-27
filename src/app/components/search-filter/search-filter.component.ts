@@ -4,6 +4,7 @@ import { ActivatedRoute, ParamMap, Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatChipsModule } from '@angular/material/chips';
+import { MatDatepickerModule } from '@angular/material/datepicker';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
@@ -12,6 +13,7 @@ import { combineLatest, Observable, Subject, Subscription } from 'rxjs';
 import { debounceTime, map, take } from 'rxjs/operators';
 import { AnalyticsService, FilterState } from '../../services/analytics.service';
 import { CategoryService, CategoryNode } from '../../services/category.service';
+import { parseLocalISODate, toLocalISODate } from '../../utils/date.util';
 
 interface CategoryOption {
   id: string;
@@ -34,7 +36,7 @@ const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 
 @Component({
   selector: 'app-search-filter',
   standalone: true,
-  imports: [CommonModule, FormsModule, MatButtonModule, MatChipsModule, MatFormFieldModule, MatIconModule, MatInputModule, MatSelectModule],
+  imports: [CommonModule, FormsModule, MatButtonModule, MatChipsModule, MatDatepickerModule, MatFormFieldModule, MatIconModule, MatInputModule, MatSelectModule],
   template: `
     <section class="filters lm-card" aria-label="Search and filters">
       <div class="row">
@@ -68,7 +70,9 @@ const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 
 
         <mat-form-field appearance="outline" subscriptSizing="dynamic" class="date">
           <mat-label>Specific date</mat-label>
-          <input matInput type="date" [ngModel]="state.specificDate" (ngModelChange)="setDate($event)" aria-label="Specific date (overrides month and year)">
+          <input matInput [matDatepicker]="datePicker" [value]="specificDate" (dateChange)="setDate($event.value)" placeholder="Any date" aria-label="Specific date (overrides month and year)">
+          <mat-datepicker-toggle matIconSuffix [for]="datePicker"></mat-datepicker-toggle>
+          <mat-datepicker #datePicker></mat-datepicker>
         </mat-form-field>
 
         <mat-form-field appearance="outline" subscriptSizing="dynamic" class="category">
@@ -118,6 +122,7 @@ export class SearchFilterComponent implements OnInit, OnDestroy {
   readonly categoryOptions$: Observable<CategoryOption[]>;
 
   state: FilterState = this.analyticsService.currentFilter();
+  specificDate: Date | null = null;
   chips: FilterChip[] = [];
 
   private searchInput$ = new Subject<string>();
@@ -152,6 +157,7 @@ export class SearchFilterComponent implements OnInit, OnDestroy {
     this.subs.push(
       this.analyticsService.filter$.subscribe(filter => {
         this.state = filter;
+        this.specificDate = filter.specificDate ? parseLocalISODate(filter.specificDate) : null;
         this.chips = this.buildChips(filter);
         this.syncUrl(filter);
       })
@@ -180,8 +186,8 @@ export class SearchFilterComponent implements OnInit, OnDestroy {
     this.analyticsService.updateFilter({ year });
   }
 
-  setDate(date: string | null) {
-    this.analyticsService.updateFilter({ specificDate: date || null });
+  setDate(date: Date | null) {
+    this.analyticsService.updateFilter({ specificDate: date ? toLocalISODate(date) : null });
   }
 
   setCategory(categoryId: string | null) {
