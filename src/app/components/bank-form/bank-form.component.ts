@@ -1,158 +1,128 @@
-import { Component, EventEmitter, Output, OnInit } from '@angular/core';
+import { Component, Inject, Optional } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { MAT_DIALOG_DATA, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
+import { MatButtonModule } from '@angular/material/button';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatInputModule } from '@angular/material/input';
+import { MatSelectModule } from '@angular/material/select';
 import { BankService } from '../../services/bank.service';
 import { Bank } from '../../models/bank.model';
+import { NotifyService } from '../../shared/notify/notify.service';
 
+/** Create or edit a bank account. Data is the bank to edit, or undefined to create. */
 @Component({
-    selector: 'app-bank-form',
-    standalone: true,
-    imports: [CommonModule, FormsModule],
-    template: `
-    <div class="modal-overlay" [class.active]="isOpen" (click)="close($event)">
-        <div class="glass-modal">
-            <div class="modal-header">
-                <h2>{{ editMode ? 'Edit Bank Account' : 'Add Bank Account' }}</h2>
-                <button class="close-modal" (click)="closeModal()"><i class="fa-solid fa-xmark"></i></button>
-            </div>
-            <form (ngSubmit)="onSubmit()">
-                <div class="form-grid">
-                    <div class="input-group">
-                        <label>Bank Name</label>
-                        <input type="text" [(ngModel)]="bank.bankName" name="bankName" placeholder="e.g. Dutch Bangla Bank" class="text-input" required>
-                    </div>
-                    <div class="input-group">
-                        <label>Bank Code</label>
-                        <input type="text" [(ngModel)]="bank.bankCode" name="bankCode" placeholder="e.g. DBBL" class="text-input" required>
-                    </div>
-                    <div class="input-group">
-                        <label>Account Name</label>
-                        <input type="text" [(ngModel)]="bank.accountName" name="accountName" placeholder="e.g. Chinmoy Sen" class="text-input" required>
-                    </div>
-                    <div class="input-group">
-                        <label>Account Number</label>
-                        <input type="text" [(ngModel)]="bank.accountNumber" name="accountNumber" placeholder="Account Number" class="text-input" required>
-                    </div>
-                    <div class="input-group">
-                        <label>Account Type</label>
-                        <select [(ngModel)]="bank.accountType" name="accountType" class="text-input" required>
-                            <option value="Savings">Savings</option>
-                            <option value="Current">Current</option>
-                            <option value="Salary">Salary</option>
-                            <option value="Credit Card">Credit Card</option>
-                        </select>
-                    </div>
-                    <div class="input-group">
-                        <label>Opening Balance</label>
-                        <input type="number" [(ngModel)]="bank.openingBalance" name="openingBalance" placeholder="0.00" class="text-input" required [disabled]="editMode">
-                    </div>
-                    <div class="input-group">
-                        <label>Home Branch</label>
-                        <input type="text" [(ngModel)]="bank.homeBranch" name="homeBranch" class="text-input">
-                    </div>
-                    <div class="input-group">
-                        <label>Branch Zone</label>
-                        <input type="text" [(ngModel)]="bank.branchZone" name="branchZone" class="text-input">
-                    </div>
-                    <div class="input-group">
-                        <label>Branch District</label>
-                        <input type="text" [(ngModel)]="bank.branchDistrict" name="branchDistrict" class="text-input">
-                    </div>
-                </div>
+  selector: 'app-bank-form',
+  standalone: true,
+  imports: [CommonModule, FormsModule, MatDialogModule, MatButtonModule, MatFormFieldModule, MatInputModule, MatSelectModule],
+  template: `
+    <h2 mat-dialog-title>{{ editMode ? 'Edit bank account' : 'Add bank account' }}</h2>
 
-                <button type="submit" class="save-btn" [disabled]="!isFormValid()">
-                    {{ editMode ? 'Update Account' : 'Create Account' }}
-                </button>
-            </form>
-        </div>
-    </div>
+    <form (ngSubmit)="onSubmit()">
+      <mat-dialog-content class="grid">
+        <mat-form-field appearance="outline">
+          <mat-label>Bank name</mat-label>
+          <input matInput name="bankName" [(ngModel)]="bank.bankName" placeholder="e.g. Dutch Bangla Bank" required cdkFocusInitial>
+        </mat-form-field>
+        <mat-form-field appearance="outline">
+          <mat-label>Bank code</mat-label>
+          <input matInput name="bankCode" [(ngModel)]="bank.bankCode" placeholder="e.g. DBBL" required>
+        </mat-form-field>
+        <mat-form-field appearance="outline">
+          <mat-label>Account name</mat-label>
+          <input matInput name="accountName" [(ngModel)]="bank.accountName" placeholder="e.g. Chinmoy Sen" required>
+        </mat-form-field>
+        <mat-form-field appearance="outline">
+          <mat-label>Account number</mat-label>
+          <input matInput name="accountNumber" [(ngModel)]="bank.accountNumber" required>
+        </mat-form-field>
+        <mat-form-field appearance="outline">
+          <mat-label>Account type</mat-label>
+          <mat-select name="accountType" [(ngModel)]="bank.accountType" required>
+            <mat-option value="Savings">Savings</mat-option>
+            <mat-option value="Current">Current</mat-option>
+            <mat-option value="Salary">Salary</mat-option>
+            <mat-option value="Credit Card">Credit Card</mat-option>
+          </mat-select>
+        </mat-form-field>
+        <mat-form-field appearance="outline">
+          <mat-label>Opening balance</mat-label>
+          <input matInput type="number" name="openingBalance" [(ngModel)]="bank.openingBalance" placeholder="0.00" required [disabled]="editMode">
+          <mat-hint *ngIf="editMode">Locked after creation</mat-hint>
+        </mat-form-field>
+        <mat-form-field appearance="outline">
+          <mat-label>Home branch</mat-label>
+          <input matInput name="homeBranch" [(ngModel)]="bank.homeBranch">
+        </mat-form-field>
+        <mat-form-field appearance="outline">
+          <mat-label>Branch zone</mat-label>
+          <input matInput name="branchZone" [(ngModel)]="bank.branchZone">
+        </mat-form-field>
+        <mat-form-field appearance="outline">
+          <mat-label>Branch district</mat-label>
+          <input matInput name="branchDistrict" [(ngModel)]="bank.branchDistrict">
+        </mat-form-field>
+      </mat-dialog-content>
+
+      <mat-dialog-actions align="end">
+        <button mat-button type="button" (click)="dialogRef.close()">Cancel</button>
+        <button mat-flat-button color="primary" type="submit" [disabled]="!isFormValid()">
+          {{ editMode ? 'Update account' : 'Create account' }}
+        </button>
+      </mat-dialog-actions>
+    </form>
   `,
-    styles: [`
-    .modal-overlay {
-        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-        background: rgba(0,0,0,0.8); backdrop-filter: blur(5px);
-        z-index: 1000; display: flex; align-items: flex-end;
-        opacity: 0; pointer-events: none; transition: opacity 0.3s ease;
-    }
-    .modal-overlay.active { opacity: 1; pointer-events: all; }
-    .glass-modal {
-        width: 100%; max-width: 480px; margin: 0 auto;
-        background: #1a1a2e; border-radius: 30px 30px 0 0;
-        padding: 30px; border-top: 1px solid var(--glass-border);
-        transform: translateY(100%); transition: transform 0.3s cubic-bezier(0.19, 1, 0.22, 1);
-        max-height: 90vh; overflow-y: auto;
-    }
-    .modal-overlay.active .glass-modal { transform: translateY(0); }
-    .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; }
-    .close-modal { background: none; border: none; color: var(--text-secondary); font-size: 1.5rem; cursor: pointer; }
-    
-    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
-    .input-group { margin-bottom: 15px; }
-    .input-group.full { grid-column: span 2; }
-    .input-group label { display: block; color: var(--text-secondary); margin-bottom: 5px; font-size: 0.8rem; }
-    .text-input { width: 100%; background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); padding: 12px; border-radius: 12px; color: white; outline: none; }
-    
-    .save-btn { width: 100%; padding: 15px; background: var(--accent-secondary); border: none; border-radius: 12px; color: white; font-size: 1rem; font-weight: 600; cursor: pointer; margin-top: 20px; }
-    .save-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  styles: [`
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+    mat-form-field { width: 100%; }
+    @media (max-width: 599.98px) { .grid { grid-template-columns: 1fr; } }
   `]
 })
 export class BankFormComponent {
-    @Output() saved = new EventEmitter<void>();
-    isOpen = false;
-    editMode = false;
+  editMode = false;
+  bank: Partial<Bank> = this.getEmptyBank();
 
-    bank: Partial<Bank> = this.getEmptyBank();
-
-    constructor(private bankService: BankService) { }
-
-    private getEmptyBank(): Partial<Bank> {
-        return {
-            bankName: '',
-            bankCode: '',
-            accountName: '',
-            accountNumber: '',
-            accountType: 'Savings',
-            homeBranch: '',
-            branchZone: '',
-            branchDistrict: '',
-            openingBalance: 0
-        };
+  constructor(
+    @Optional() @Inject(MAT_DIALOG_DATA) bankToEdit: Bank | undefined,
+    public dialogRef: MatDialogRef<BankFormComponent>,
+    private bankService: BankService,
+    private notify: NotifyService
+  ) {
+    if (bankToEdit) {
+      this.editMode = true;
+      this.bank = { ...bankToEdit };
     }
+  }
 
-    open(bankToEdit?: Bank) {
-        this.isOpen = true;
-        if (bankToEdit) {
-            this.editMode = true;
-            this.bank = { ...bankToEdit };
-        } else {
-            this.editMode = false;
-            this.bank = this.getEmptyBank();
-        }
-    }
+  private getEmptyBank(): Partial<Bank> {
+    return {
+      bankName: '',
+      bankCode: '',
+      accountName: '',
+      accountNumber: '',
+      accountType: 'Savings',
+      homeBranch: '',
+      branchZone: '',
+      branchDistrict: '',
+      openingBalance: 0
+    };
+  }
 
-    closeModal() {
-        this.isOpen = false;
-    }
+  isFormValid(): boolean {
+    return !!(this.bank.bankName && this.bank.bankCode && this.bank.accountName && this.bank.accountNumber);
+  }
 
-    close(event: MouseEvent) {
-        if (event.target === event.currentTarget) {
-            this.closeModal();
-        }
+  async onSubmit() {
+    if (!this.isFormValid()) return;
+    try {
+      if (this.editMode) {
+        await this.bankService.updateBank(this.bank as Bank);
+      } else {
+        await this.bankService.addBank(this.bank);
+      }
+      this.dialogRef.close(true);
+    } catch (error) {
+      this.notify.error('Could not save the bank account. Please try again.');
     }
-
-    isFormValid(): boolean {
-        return !!(this.bank.bankName && this.bank.bankCode && this.bank.accountName && this.bank.accountNumber);
-    }
-
-    async onSubmit() {
-        if (this.isFormValid()) {
-            if (this.editMode) {
-                await this.bankService.updateBank(this.bank as Bank);
-            } else {
-                await this.bankService.addBank(this.bank);
-            }
-            this.saved.emit();
-            this.closeModal();
-        }
-    }
+  }
 }

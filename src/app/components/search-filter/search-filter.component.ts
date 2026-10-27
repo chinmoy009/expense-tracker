@@ -1,165 +1,301 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnDestroy, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { ActivatedRoute, ParamMap, Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
-import { AnalyticsService } from '../../services/analytics.service';
+import { MatButtonModule } from '@angular/material/button';
+import { MatChipsModule } from '@angular/material/chips';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatIconModule } from '@angular/material/icon';
+import { MatInputModule } from '@angular/material/input';
+import { MatSelectModule } from '@angular/material/select';
+import { combineLatest, Observable, Subject, Subscription } from 'rxjs';
+import { debounceTime, map, take } from 'rxjs/operators';
+import { AnalyticsService, FilterState } from '../../services/analytics.service';
 import { CategoryService, CategoryNode } from '../../services/category.service';
 
+interface CategoryOption {
+  id: string;
+  name: string;
+  level: number;
+}
+
+interface FilterChip {
+  label: string;
+  clear: () => void;
+}
+
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+/**
+ * Search and filter bar for the expenses grid.
+ * State lives in AnalyticsService; this component mirrors it to the URL query string
+ * so filtered views survive refresh and can be linked.
+ */
 @Component({
   selector: 'app-search-filter',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, MatButtonModule, MatChipsModule, MatFormFieldModule, MatIconModule, MatInputModule, MatSelectModule],
   template: `
-    <div class="filter-panel glass-panel">
-      <div class="filter-header">
-        <h3><i class="fa-solid fa-filter"></i> Filters</h3>
-        <button (click)="resetFilters()" class="reset-btn">Reset</button>
+    <section class="filters lm-card" aria-label="Search and filters">
+      <div class="row">
+        <mat-form-field appearance="outline" class="search" subscriptSizing="dynamic">
+          <mat-icon matPrefix aria-hidden="true">search</mat-icon>
+          <mat-label>Search notes</mat-label>
+          <input
+            matInput
+            type="search"
+            [ngModel]="state.searchText"
+            (ngModelChange)="onSearchInput($event)"
+            placeholder="e.g. Pizza"
+            aria-label="Search notes">
+        </mat-form-field>
+
+        <mat-form-field appearance="outline" subscriptSizing="dynamic" class="period">
+          <mat-label>Month</mat-label>
+          <mat-select [value]="state.month" (selectionChange)="setMonth($event.value)" [disabled]="!!state.specificDate">
+            <mat-option [value]="null">All months</mat-option>
+            <mat-option *ngFor="let m of months; let i = index" [value]="i">{{ m }}</mat-option>
+          </mat-select>
+        </mat-form-field>
+
+        <mat-form-field appearance="outline" subscriptSizing="dynamic" class="period">
+          <mat-label>Year</mat-label>
+          <mat-select [value]="state.year" (selectionChange)="setYear($event.value)" [disabled]="!!state.specificDate">
+            <mat-option [value]="null">All years</mat-option>
+            <mat-option *ngFor="let y of years" [value]="y">{{ y }}</mat-option>
+          </mat-select>
+        </mat-form-field>
+
+        <mat-form-field appearance="outline" subscriptSizing="dynamic" class="date">
+          <mat-label>Specific date</mat-label>
+          <input matInput type="date" [ngModel]="state.specificDate" (ngModelChange)="setDate($event)" aria-label="Specific date (overrides month and year)">
+        </mat-form-field>
+
+        <mat-form-field appearance="outline" subscriptSizing="dynamic" class="category">
+          <mat-label>Category</mat-label>
+          <mat-select [value]="state.categoryId" (selectionChange)="setCategory($event.value)">
+            <mat-option [value]="null">All categories</mat-option>
+            <mat-option *ngFor="let c of categoryOptions$ | async" [value]="c.id">
+              <span [style.padding-left.px]="c.level * 12">{{ c.name }}</span>
+            </mat-option>
+          </mat-select>
+        </mat-form-field>
+
+        <button mat-stroked-button type="button" class="reset" (click)="reset()">
+          <mat-icon>restart_alt</mat-icon>
+          Reset
+        </button>
       </div>
 
-      <div class="filter-grid">
-        <!-- Search Description -->
-        <div class="filter-group">
-            <label>Search Description</label>
-            <input type="text" [(ngModel)]="searchText" (ngModelChange)="updateFilter()" placeholder="e.g. Pizza" class="glass-input">
-        </div>
-
-        <!-- Month/Year Selector -->
-        <div class="filter-group">
-            <label>Period</label>
-            <div class="period-inputs">
-                <select [(ngModel)]="selectedMonth" (change)="updateFilter()" class="glass-select" [disabled]="!!selectedDate">
-                    <option [ngValue]="null">All Months</option>
-                    <option *ngFor="let m of months; let i = index" [ngValue]="i">{{ m }}</option>
-                </select>
-                <select [(ngModel)]="selectedYear" (change)="updateFilter()" class="glass-select" [disabled]="!!selectedDate">
-                    <option [ngValue]="null">All Years</option>
-                    <option *ngFor="let y of years" [ngValue]="y">{{ y }}</option>
-                </select>
-            </div>
-        </div>
-
-        <!-- Date Filter -->
-        <div class="filter-group">
-            <label>Specific Date (Overrides Period)</label>
-            <div class="date-inputs">
-                <input type="date" [(ngModel)]="selectedDate" (change)="updateFilter()" class="glass-input">
-            </div>
-        </div>
-
-        <!-- Category Selector -->
-        <div class="filter-group">
-            <label>Category</label>
-            <select [(ngModel)]="selectedCategoryId" (change)="updateFilter()" class="glass-select">
-                <option [ngValue]="null">All Categories</option>
-                <ng-container *ngTemplateOutlet="categoryOptions; context: { $implicit: categories$ | async, level: 0 }"></ng-container>
-            </select>
-        </div>
-      </div>
-    </div>
-
-    <ng-template #categoryOptions let-nodes let-level="level">
-        <ng-container *ngFor="let node of nodes">
-            <option [value]="node.id" [style.padding-left.px]="level * 10">
-                {{ getPrefix(level) }}{{ node.name }}
-            </option>
-            <ng-container *ngTemplateOutlet="categoryOptions; context: { $implicit: node.children, level: level + 1 }"></ng-container>
-        </ng-container>
-    </ng-template>
+      <mat-chip-set *ngIf="chips.length > 0" aria-label="Active filters">
+        <mat-chip-row *ngFor="let chip of chips" (removed)="chip.clear()">
+          {{ chip.label }}
+          <button matChipRemove [attr.aria-label]="'Remove filter ' + chip.label">
+            <mat-icon>cancel</mat-icon>
+          </button>
+        </mat-chip-row>
+      </mat-chip-set>
+    </section>
   `,
   styles: [`
-    .glass-panel {
-        background: rgba(255, 255, 255, 0.05);
-        backdrop-filter: blur(10px);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 20px;
-        padding: 20px;
-        color: white;
-        margin-bottom: 20px;
+    :host { display: block; }
+    .filters { display: flex; flex-direction: column; gap: 12px; padding: 16px; }
+    .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    .search { flex: 2 1 240px; }
+    .period { flex: 1 1 130px; }
+    .date { flex: 1 1 150px; }
+    .category { flex: 1.4 1 180px; }
+    .reset { height: 40px; }
+    @media (max-width: 767.98px) {
+      .search, .period, .date, .category { flex: 1 1 100%; }
+      .reset { width: 100%; justify-content: center; }
     }
-    .filter-header {
-        display: flex; justify-content: space-between; align-items: center;
-        margin-bottom: 15px;
-    }
-    .filter-header h3 { margin: 0; font-size: 1.1rem; display: flex; align-items: center; gap: 8px; }
-    
-    .reset-btn {
-        background: none; border: 1px solid var(--glass-border); color: var(--text-secondary);
-        padding: 5px 12px; border-radius: 8px; cursor: pointer; font-size: 0.8rem;
-        transition: all 0.2s;
-    }
-    .reset-btn:hover { background: rgba(255,255,255,0.1); color: white; }
-
-    .filter-grid {
-        display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;
-    }
-    .filter-group label {
-        display: block; color: var(--text-secondary); font-size: 0.8rem; margin-bottom: 5px;
-    }
-    
-    .glass-select, .glass-input {
-        width: 100%; background: rgba(0,0,0,0.2); border: 1px solid var(--glass-border);
-        color: white; padding: 8px; border-radius: 10px; outline: none;
-        font-family: var(--font-main);
-    }
-    .glass-select option { background: #1a1a2e; color: white; }
-    
-    .period-inputs { display: flex; gap: 10px; }
-    .date-inputs { display: flex; align-items: center; gap: 5px; }
-    .separator { color: var(--text-secondary); }
   `]
 })
-export class SearchFilterComponent implements OnInit {
-  categories$ = this.categoryService.categories$;
+export class SearchFilterComponent implements OnInit, OnDestroy {
+  readonly months = MONTHS;
+  readonly years: number[] = [];
+  readonly categoryOptions$: Observable<CategoryOption[]>;
 
-  months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-  years: number[] = [];
+  state: FilterState = this.analyticsService.currentFilter();
+  chips: FilterChip[] = [];
 
-  selectedMonth: number | null = new Date().getMonth();
-  selectedYear: number | null = new Date().getFullYear();
-  selectedCategoryId: string | null = null;
-  selectedDate: string | null = null;
-  searchText: string = '';
-  startDate: string | null = null;
-  endDate: string | null = null;
+  private searchInput$ = new Subject<string>();
+  private subs: Subscription[] = [];
 
   constructor(
     private analyticsService: AnalyticsService,
-    private categoryService: CategoryService
+    private categoryService: CategoryService,
+    private route: ActivatedRoute,
+    private router: Router
   ) {
-    // Generate years (current - 5 to current + 1)
     const currentYear = new Date().getFullYear();
     for (let i = currentYear - 5; i <= currentYear + 1; i++) {
       this.years.push(i);
     }
+
+    this.categoryOptions$ = this.categoryService.categories$.pipe(
+      map(tree => this.flatten(tree, 0))
+    );
   }
 
   ngOnInit() {
-    this.updateFilter();
+    // URL to state: apply query params on load and when they change
+    this.subs.push(
+      this.route.queryParamMap.subscribe(params => {
+        const next = this.stateFromQuery(params);
+        if (next) this.analyticsService.updateFilter(next);
+      })
+    );
+
+    // State to URL, plus local chip list
+    this.subs.push(
+      this.analyticsService.filter$.subscribe(filter => {
+        this.state = filter;
+        this.chips = this.buildChips(filter);
+        this.syncUrl(filter);
+      })
+    );
+
+    this.subs.push(
+      this.searchInput$.pipe(debounceTime(250)).subscribe(text => {
+        this.analyticsService.updateFilter({ searchText: text });
+      })
+    );
   }
 
-  updateFilter() {
+  ngOnDestroy() {
+    this.subs.forEach(sub => sub.unsubscribe());
+  }
+
+  onSearchInput(text: string) {
+    this.searchInput$.next(text);
+  }
+
+  setMonth(month: number | null) {
+    this.analyticsService.updateFilter({ month });
+  }
+
+  setYear(year: number | null) {
+    this.analyticsService.updateFilter({ year });
+  }
+
+  setDate(date: string | null) {
+    this.analyticsService.updateFilter({ specificDate: date || null });
+  }
+
+  setCategory(categoryId: string | null) {
+    this.analyticsService.updateFilter({ categoryId });
+  }
+
+  reset() {
+    const now = new Date();
+    this.searchInput$.next('');
     this.analyticsService.updateFilter({
-      month: this.selectedMonth,
-      year: this.selectedYear,
-      categoryId: this.selectedCategoryId,
-      specificDate: this.selectedDate,
-      searchText: this.searchText,
-      startDate: this.startDate ? new Date(this.startDate) : null,
-      endDate: this.endDate ? new Date(this.endDate) : null
+      month: now.getMonth(),
+      year: now.getFullYear(),
+      categoryId: null,
+      specificDate: null,
+      searchText: ''
     });
   }
 
-  resetFilters() {
-    this.selectedMonth = new Date().getMonth();
-    this.selectedYear = new Date().getFullYear();
-    this.selectedCategoryId = null;
-    this.selectedDate = null;
-    this.searchText = '';
-    this.startDate = null;
-    this.endDate = null;
-    this.updateFilter();
+  private buildChips(filter: FilterState): FilterChip[] {
+    const now = new Date();
+    const chips: FilterChip[] = [];
+
+    if (filter.searchText) {
+      chips.push({
+        label: `Note: ${filter.searchText}`,
+        clear: () => {
+          this.searchInput$.next('');
+          this.analyticsService.updateFilter({ searchText: '' });
+        }
+      });
+    }
+
+    if (filter.specificDate) {
+      chips.push({
+        label: `Date: ${filter.specificDate}`,
+        clear: () => this.analyticsService.updateFilter({ specificDate: null })
+      });
+    } else {
+      const isDefaultPeriod = filter.month === now.getMonth() && filter.year === now.getFullYear();
+      if (!isDefaultPeriod) {
+        const monthLabel = filter.month === null ? 'All months' : MONTHS[filter.month];
+        const yearLabel = filter.year === null ? 'All years' : String(filter.year);
+        chips.push({
+          label: `${monthLabel} ${yearLabel}`,
+          clear: () => this.analyticsService.updateFilter({ month: now.getMonth(), year: now.getFullYear() })
+        });
+      }
+    }
+
+    if (filter.categoryId) {
+      const name = this.findCategoryName(this.categoryService.snapshot(), filter.categoryId) ?? 'Category';
+      chips.push({
+        label: `Category: ${name}`,
+        clear: () => this.analyticsService.updateFilter({ categoryId: null })
+      });
+    }
+
+    return chips;
   }
 
-  getPrefix(level: number): string {
-    return level > 0 ? '- '.repeat(level) : '';
+  private stateFromQuery(params: ParamMap): Partial<FilterState> | null {
+    const now = new Date();
+    const partial: Partial<FilterState> = {};
+
+    if (params.has('q')) partial.searchText = params.get('q') ?? '';
+    if (params.has('d')) partial.specificDate = params.get('d') || null;
+    if (params.has('c')) partial.categoryId = params.get('c') || null;
+
+    if (params.has('m')) {
+      const m = params.get('m');
+      partial.month = m === 'all' ? null : this.toIntOr(m, now.getMonth());
+    }
+    if (params.has('y')) {
+      const y = params.get('y');
+      partial.year = y === 'all' ? null : this.toIntOr(y, now.getFullYear());
+    }
+
+    return Object.keys(partial).length > 0 ? partial : null;
+  }
+
+  private syncUrl(filter: FilterState) {
+    const target = {
+      q: filter.searchText || null,
+      m: filter.month === null ? 'all' : String(filter.month),
+      y: filter.year === null ? 'all' : String(filter.year),
+      d: filter.specificDate,
+      c: filter.categoryId
+    };
+
+    const current = this.route.snapshot.queryParamMap;
+    const same = (Object.keys(target) as (keyof typeof target)[]).every(key => (current.get(key) ?? null) === target[key]);
+    if (!same) {
+      this.router.navigate([], { relativeTo: this.route, queryParams: target, replaceUrl: true });
+    }
+  }
+
+  private toIntOr(value: string | null, fallback: number): number {
+    const n = Number(value);
+    return Number.isInteger(n) ? n : fallback;
+  }
+
+  private flatten(nodes: CategoryNode[], level: number): CategoryOption[] {
+    return nodes.flatMap(node => [
+      { id: node.id, name: node.name, level },
+      ...this.flatten(node.children, level + 1)
+    ]);
+  }
+
+  private findCategoryName(nodes: CategoryNode[], id: string): string | null {
+    for (const node of nodes) {
+      if (node.id === id) return node.name;
+      const found = this.findCategoryName(node.children, id);
+      if (found) return found;
+    }
+    return null;
   }
 }

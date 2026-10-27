@@ -1,155 +1,119 @@
-import { Component, OnInit, ViewChild } from '@angular/core';
+import { Component, OnDestroy, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { Subscription } from 'rxjs';
 import { SummaryCardComponent } from '../summary-card/summary-card.component';
 import { ChartComponent } from '../chart/chart.component';
-import { TransactionListComponent } from '../transaction-list/transaction-list.component';
-import { AddExpenseModalComponent } from '../add-expense-modal/add-expense-modal.component';
-import { ImportModalComponent } from '../import-modal/import-modal.component';
-import { CategoryManagerComponent } from '../category-manager/category-manager.component';
+import { ExpenseGridComponent } from '../expense-grid/expense-grid.component';
 import { SearchFilterComponent } from '../search-filter/search-filter.component';
-import { ExpenseService } from '../../services/expense.service';
-import { AnalyticsService, AnalyticsResult } from '../../services/analytics.service';
+import { ExpenseService, Expense } from '../../services/expense.service';
+import { AnalyticsService } from '../../services/analytics.service';
+import { NotifyService } from '../../shared/notify/notify.service';
+import { AppActionsService } from '../../shared/app-actions.service';
 
+/** Expenses page: filter bar, KPI row, data grid, and the spending chart beside it. */
 @Component({
   selector: 'app-dashboard',
   standalone: true,
-  imports: [
-    CommonModule,
-    SummaryCardComponent,
-    ChartComponent,
-    TransactionListComponent,
-    AddExpenseModalComponent,
-    ImportModalComponent,
-    CategoryManagerComponent,
-    SearchFilterComponent
-  ],
+  imports: [CommonModule, SearchFilterComponent, SummaryCardComponent, ChartComponent, ExpenseGridComponent],
   template: `
-    <main>
-        <!-- Search & Filters -->
-        <app-search-filter></app-search-filter>
+    <app-search-filter></app-search-filter>
 
-        <!-- Dashboard Cards -->
-        <section class="dashboard-grid">
-            <app-summary-card
-                title="Total Spend"
-                [amount]="totalSpend"
-                icon="fa-solid fa-wallet"
-                trend="Selected Period"
-                className="total-balance"
-            ></app-summary-card>
+    <section class="kpis" aria-label="Summary">
+      <app-summary-card
+        label="Total spend"
+        [amount]="totalSpend"
+        icon="account_balance_wallet"
+        hint="Selected period">
+      </app-summary-card>
+      <app-summary-card
+        label="Daily average"
+        [amount]="dailyAverage"
+        icon="show_chart"
+        [hint]="'Across ' + dayCount + (dayCount === 1 ? ' day' : ' days')">
+      </app-summary-card>
+      <app-summary-card
+        label="Transactions"
+        [amount]="count"
+        icon="receipt_long"
+        hint="Matching filters"
+        [isCount]="true">
+      </app-summary-card>
+    </section>
 
-            <app-summary-card
-                title="Daily Average"
-                [amount]="dailyAverage"
-                icon="fa-solid fa-chart-line"
-                className="daily-spend"
-                trend="Based on selection"
-            ></app-summary-card>
-        </section>
+    <div class="workspace">
+      <section class="grid-panel lm-card">
+        <app-expense-grid
+          [expenses]="expenses"
+          [total]="totalSpend"
+          (edit)="actions.editExpense($event)"
+          (delete)="confirmDelete($event)">
+        </app-expense-grid>
+      </section>
 
-        <!-- Actions -->
-        <div class="actions-bar" style="display: flex; justify-content: flex-end; gap: 10px; margin-bottom: 20px;">
-            <button (click)="showCategories = !showCategories" class="action-btn">
-                <i class="fa-solid fa-tags"></i> Categories
-            </button>
-            <button (click)="openImportModal()" class="action-btn">
-                <i class="fa-solid fa-file-import"></i> Import Sheets
-            </button>
-        </div>
-
-        <!-- Category Manager (Collapsible) -->
-        <div *ngIf="showCategories" class="mb-4" style="margin-bottom: 20px;">
-            <app-category-manager></app-category-manager>
-        </div>
-
-        <!-- Chart -->
+      <aside class="side-panel lm-card">
         <app-chart></app-chart>
-
-        <!-- Recent Transactions -->
-        <app-transaction-list (edit)="openModal($event)"></app-transaction-list>
-    </main>
-
-    <!-- Floating Action Button -->
-    <button class="fab" (click)="openModal()">
-        <i class="fa-solid fa-plus"></i>
-    </button>
-
-    <!-- Modals -->
-    <app-add-expense-modal #modal></app-add-expense-modal>
-    <app-import-modal #importModal (closeEvent)="onImportClosed()"></app-import-modal>
+      </aside>
+    </div>
   `,
   styles: [`
-    .dashboard-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 15px;
-        margin-bottom: 10px;
+    :host { display: block; }
+    .kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 16px 0; }
+    .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start; }
+    .grid-panel { min-width: 0; }
+    .side-panel { position: sticky; top: 0; }
+
+    @media (max-width: 1099.98px) {
+      .workspace { grid-template-columns: minmax(0, 1fr); }
+      .side-panel { position: static; }
     }
-    .fab {
-        position: fixed;
-        bottom: 30px;
-        right: 50%;
-        transform: translateX(50%);
-        width: 60px;
-        height: 60px;
-        border-radius: 50%;
-        background: var(--accent-primary);
-        border: none;
-        color: white;
-        font-size: 1.5rem;
-        box-shadow: 0 10px 30px rgba(247, 37, 133, 0.4);
-        cursor: pointer;
-        transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-        z-index: 100;
+    @media (max-width: 767.98px) {
+      .kpis { grid-template-columns: minmax(0, 1fr); gap: 10px; margin: 12px 0; }
+      .workspace { gap: 12px; }
+      .side-panel { order: -1; } /* chart sits between KPIs and the list on phones */
+      .lm-card { padding: 16px; }
     }
-    .fab:hover { transform: translateX(50%) scale(1.1); }
-    
-    .action-btn {
-        background: rgba(255,255,255,0.1);
-        border: 1px solid rgba(255,255,255,0.2);
-        color: var(--text-secondary);
-        padding: 8px 16px;
-        border-radius: 10px;
-        cursor: pointer;
-        font-family: var(--font-main);
-        font-size: 0.9rem;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        transition: all 0.2s;
-    }
-    .action-btn:hover { background: rgba(255,255,255,0.2); color: white; }
   `]
 })
-export class DashboardComponent implements OnInit {
-  @ViewChild('modal') modal!: AddExpenseModalComponent;
-  @ViewChild('importModal') importModal!: ImportModalComponent;
+export class DashboardComponent implements OnInit, OnDestroy {
+  totalSpend = 0;
+  dailyAverage = 0;
+  dayCount = 1;
+  count = 0;
+  expenses: Expense[] = [];
 
-  totalSpend: number = 0;
-  dailyAverage: number = 0;
-  showCategories = false;
+  private sub?: Subscription;
 
   constructor(
     private expenseService: ExpenseService,
-    private analyticsService: AnalyticsService
+    private analyticsService: AnalyticsService,
+    private notify: NotifyService,
+    public actions: AppActionsService
   ) { }
 
   ngOnInit() {
-    this.analyticsService.result$.subscribe((result: AnalyticsResult) => {
+    this.sub = this.analyticsService.result$.subscribe(result => {
       this.totalSpend = result.total;
-      this.dailyAverage = result.total / 30; // Simplified
+      this.dayCount = result.dayCount;
+      this.dailyAverage = result.dayCount > 0 ? result.total / result.dayCount : 0;
+      this.expenses = result.filteredExpenses;
+      this.count = result.filteredExpenses.length;
     });
   }
 
-  openModal(expense?: any) {
-    this.modal.open(expense);
+  ngOnDestroy() {
+    this.sub?.unsubscribe();
   }
 
-  openImportModal() {
-    this.importModal.open();
-  }
-
-  onImportClosed() {
-    window.location.reload();
+  confirmDelete(expense: Expense) {
+    this.notify.confirm({
+      title: 'Delete expense',
+      message: 'Are you sure you want to delete this expense?',
+      confirmText: 'Delete',
+      danger: true
+    }).subscribe(confirmed => {
+      if (confirmed) {
+        this.expenseService.deleteExpense(expense.id);
+      }
+    });
   }
 }

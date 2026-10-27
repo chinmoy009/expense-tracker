@@ -1,4 +1,9 @@
-<button class="currency-toggle" (click)="toggleCurrency()" title="Switch Currency">
-    <span class="symbol">{{ currentCurrency === 'USD' ? '$' : '৳' }}</span>
-    <span class="code">{{ currentCurrency }}</span>
+<button
+  mat-stroked-button
+  class="currency-btn"
+  (click)="toggleCurrency()"
+  [attr.aria-label]="'Currency: ' + currentCurrency + '. Switch currency'"
+  title="Switch currency">
+  <span class="symbol">{{ currentCurrency === 'USD' ? '$' : '৳' }}</span>
+  <span class="code">{{ currentCurrency }}</span>
 </button>

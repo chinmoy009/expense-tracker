@@ -1,148 +1,121 @@
-import { Component, EventEmitter, Output, OnInit } from '@angular/core';
+import { Component, Inject, Optional } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { MAT_DIALOG_DATA, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
+import { MatButtonModule } from '@angular/material/button';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatInputModule } from '@angular/material/input';
+import { MatSelectModule } from '@angular/material/select';
+import { map } from 'rxjs/operators';
 import { BankService } from '../../services/bank.service';
 import { Bank, BankTransaction } from '../../models/bank.model';
-import { map } from 'rxjs/operators';
+import { NotifyService } from '../../shared/notify/notify.service';
+import { todayLocalISODate } from '../../utils/date.util';
 
+/** Log or edit a bank transaction. Data is the transaction to edit, or undefined to create. */
 @Component({
-    selector: 'app-bank-transaction-form',
-    standalone: true,
-    imports: [CommonModule, FormsModule],
-    template: `
-    <div class="modal-overlay" [class.active]="isOpen" (click)="close($event)">
-        <div class="glass-modal">
-            <div class="modal-header">
-                <h2>{{ editMode ? 'Edit Transaction' : 'Log Transaction' }}</h2>
-                <button class="close-modal" (click)="closeModal()"><i class="fa-solid fa-xmark"></i></button>
-            </div>
-            <form (ngSubmit)="onSubmit()">
-                <div class="input-group">
-                    <label>Bank Account</label>
-                    <select [(ngModel)]="tx.bankId" name="bankId" class="text-input" required [disabled]="editMode">
-                        <option value="" disabled>Select Bank</option>
-                        <option *ngFor="let bank of activeBanks$ | async" [value]="bank.id">
-                            {{ bank.bankCode }} - {{ bank.accountNumber }}
-                        </option>
-                    </select>
-                </div>
+  selector: 'app-bank-transaction-form',
+  standalone: true,
+  imports: [CommonModule, FormsModule, MatDialogModule, MatButtonModule, MatFormFieldModule, MatInputModule, MatSelectModule],
+  template: `
+    <h2 mat-dialog-title>{{ editMode ? 'Edit transaction' : 'Log transaction' }}</h2>
 
-                <div class="form-grid">
-                    <div class="input-group">
-                        <label>Type</label>
-                        <select [(ngModel)]="tx.type" name="type" class="text-input" required>
-                            <option value="DEBIT">DEBIT (Out)</option>
-                            <option value="CREDIT">CREDIT (In)</option>
-                        </select>
-                    </div>
-                    <div class="input-group">
-                        <label>Amount</label>
-                        <input type="number" [(ngModel)]="tx.amount" name="amount" placeholder="0.00" class="text-input" required min="0.01">
-                    </div>
-                </div>
+    <form (ngSubmit)="onSubmit()">
+      <mat-dialog-content class="grid">
+        <mat-form-field appearance="outline" class="full">
+          <mat-label>Bank account</mat-label>
+          <mat-select name="bankId" [(ngModel)]="tx.bankId" required [disabled]="editMode">
+            <mat-option *ngFor="let bank of activeBanks$ | async" [value]="bank.id">
+              {{ bank.bankCode }} - {{ bank.accountNumber }}
+            </mat-option>
+          </mat-select>
+        </mat-form-field>
 
-                <div class="input-group">
-                    <label>Date</label>
-                    <input type="date" [(ngModel)]="tx.date" name="date" class="text-input" required>
-                </div>
+        <mat-form-field appearance="outline">
+          <mat-label>Type</mat-label>
+          <mat-select name="type" [(ngModel)]="tx.type" required>
+            <mat-option value="DEBIT">DEBIT (out)</mat-option>
+            <mat-option value="CREDIT">CREDIT (in)</mat-option>
+          </mat-select>
+        </mat-form-field>
 
-                <div class="input-group">
-                    <label>Details</label>
-                    <textarea [(ngModel)]="tx.details" name="details" placeholder="Transaction details..." class="text-input" rows="3"></textarea>
-                </div>
+        <mat-form-field appearance="outline">
+          <mat-label>Amount</mat-label>
+          <input matInput type="number" name="amount" [(ngModel)]="tx.amount" placeholder="0.00" min="0.01" required>
+        </mat-form-field>
 
-                <button type="submit" class="save-btn" [disabled]="!isFormValid()">
-                    {{ editMode ? 'Update Transaction' : 'Log Transaction' }}
-                </button>
-            </form>
-        </div>
-    </div>
+        <mat-form-field appearance="outline" class="full">
+          <mat-label>Date</mat-label>
+          <input matInput type="date" name="date" [(ngModel)]="tx.date" required>
+        </mat-form-field>
+
+        <mat-form-field appearance="outline" class="full">
+          <mat-label>Details</mat-label>
+          <textarea matInput name="details" [(ngModel)]="tx.details" rows="3" placeholder="Transaction details…"></textarea>
+        </mat-form-field>
+      </mat-dialog-content>
+
+      <mat-dialog-actions align="end">
+        <button mat-button type="button" (click)="dialogRef.close()">Cancel</button>
+        <button mat-flat-button color="primary" type="submit" [disabled]="!isFormValid()">
+          {{ editMode ? 'Update transaction' : 'Log transaction' }}
+        </button>
+      </mat-dialog-actions>
+    </form>
   `,
-    styles: [`
-    .modal-overlay {
-        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-        background: rgba(0,0,0,0.8); backdrop-filter: blur(5px);
-        z-index: 1000; display: flex; align-items: flex-end;
-        opacity: 0; pointer-events: none; transition: opacity 0.3s ease;
-    }
-    .modal-overlay.active { opacity: 1; pointer-events: all; }
-    .glass-modal {
-        width: 100%; max-width: 480px; margin: 0 auto;
-        background: #1a1a2e; border-radius: 30px 30px 0 0;
-        padding: 30px; border-top: 1px solid var(--glass-border);
-        transform: translateY(100%); transition: transform 0.3s cubic-bezier(0.19, 1, 0.22, 1);
-    }
-    .modal-overlay.active .glass-modal { transform: translateY(0); }
-    .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; }
-    .close-modal { background: none; border: none; color: var(--text-secondary); font-size: 1.5rem; cursor: pointer; }
-    
-    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
-    .input-group { margin-bottom: 15px; }
-    .input-group label { display: block; color: var(--text-secondary); margin-bottom: 5px; font-size: 0.8rem; }
-    .text-input { width: 100%; background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); padding: 12px; border-radius: 12px; color: white; outline: none; font-family: inherit; }
-    select.text-input { appearance: none; }
-    textarea.text-input { resize: none; }
-    
-    .save-btn { width: 100%; padding: 15px; background: var(--accent-secondary); border: none; border-radius: 12px; color: white; font-size: 1rem; font-weight: 600; cursor: pointer; margin-top: 20px; }
-    .save-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  styles: [`
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+    .full { grid-column: 1 / -1; }
+    mat-form-field { width: 100%; }
+    @media (max-width: 599.98px) { .grid { grid-template-columns: 1fr; } }
   `]
 })
 export class BankTransactionFormComponent {
-    @Output() saved = new EventEmitter<void>();
-    isOpen = false;
-    editMode = false;
+  editMode = false;
+  tx: Partial<BankTransaction> = this.getEmptyTx();
+  activeBanks$ = this.bankService.banks$.pipe(
+    map((banks: Bank[]) => banks.filter(b => !b.isClosed))
+  );
 
-    tx: Partial<BankTransaction> = this.getEmptyTx();
-    activeBanks$ = this.bankService.banks$.pipe(
-        map(banks => banks.filter(b => !b.isClosed))
-    );
-
-    constructor(private bankService: BankService) { }
-
-    private getEmptyTx(): Partial<BankTransaction> {
-        return {
-            bankId: '',
-            type: 'DEBIT',
-            amount: 0,
-            date: new Date().toISOString().split('T')[0],
-            details: ''
-        };
+  constructor(
+    @Optional() @Inject(MAT_DIALOG_DATA) txToEdit: BankTransaction | undefined,
+    public dialogRef: MatDialogRef<BankTransactionFormComponent>,
+    private bankService: BankService,
+    private notify: NotifyService
+  ) {
+    if (txToEdit) {
+      this.editMode = true;
+      this.tx = { ...txToEdit };
     }
+  }
 
-    open(txToEdit?: BankTransaction) {
-        this.isOpen = true;
-        if (txToEdit) {
-            this.editMode = true;
-            this.tx = { ...txToEdit };
-        } else {
-            this.editMode = false;
-            this.tx = this.getEmptyTx();
-        }
-    }
+  private getEmptyTx(): Partial<BankTransaction> {
+    return {
+      bankId: '',
+      type: 'DEBIT',
+      amount: 0,
+      date: todayLocalISODate(),
+      details: ''
+    };
+  }
 
-    closeModal() {
-        this.isOpen = false;
-    }
+  isFormValid(): boolean {
+    return !!(this.tx.bankId && this.tx.type && this.tx.amount && this.tx.amount > 0 && this.tx.date);
+  }
 
-    close(event: MouseEvent) {
-        if (event.target === event.currentTarget) {
-            this.closeModal();
-        }
+  async onSubmit() {
+    if (!this.isFormValid()) return;
+    try {
+      if (this.editMode) {
+        await this.bankService.updateTransaction(this.tx as BankTransaction);
+      } else {
+        await this.bankService.addTransaction(this.tx);
+      }
+      this.dialogRef.close(true);
+    } catch (error) {
+      // Service rejects invalid amounts and closed accounts; show the reason instead of failing silently
+      const message = error instanceof Error ? error.message : 'Could not save the transaction.';
+      this.notify.error(message);
     }
-
-    isFormValid(): boolean {
-        return !!(this.tx.bankId && this.tx.type && this.tx.amount && this.tx.amount > 0 && this.tx.date);
-    }
-
-    async onSubmit() {
-        if (this.isFormValid()) {
-            if (this.editMode) {
-                await this.bankService.updateTransaction(this.tx as BankTransaction);
-            } else {
-                await this.bankService.addTransaction(this.tx);
-            }
-            this.saved.emit();
-            this.closeModal();
-        }
-    }
+  }
 }

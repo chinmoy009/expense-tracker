@@ -1,6 +1,7 @@
 import { Injectable } from '@angular/core';
 import { BehaviorSubject } from 'rxjs';
 import { environment } from '../config';
+import { NotifyService } from '../shared/notify/notify.service';
 
 declare var gapi: any;
 declare var google: any;
@@ -18,7 +19,7 @@ export class GoogleApiService {
 
   private initPromise: Promise<void>;
 
-  constructor() {
+  constructor(private notify: NotifyService) {
     this.initPromise = this.init();
   }
 
@@ -111,7 +112,7 @@ export class GoogleApiService {
         if (this.gisInitialized && this.tokenClient) {
           this.tokenClient.requestAccessToken();
         } else {
-          alert('Google Sign-In is still loading. Please check your internet connection and try again.');
+          this.notify.error('Google Sign-In is still loading. Please check your internet connection and try again.');
         }
       }, 1000);
     }

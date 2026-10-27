@@ -1,160 +1,112 @@
-import { Component, OnInit } from '@angular/core';
+import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { MatButtonModule } from '@angular/material/button';
+import { MatDialogModule, MatDialogRef } from '@angular/material/dialog';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatIconModule } from '@angular/material/icon';
+import { MatInputModule } from '@angular/material/input';
+import { MatTooltipModule } from '@angular/material/tooltip';
+import { firstValueFrom } from 'rxjs';
 import { CategoryService, CategoryNode } from '../../services/category.service';
+import { NotifyService } from '../../shared/notify/notify.service';
 
+/** Category tree side panel. Opened through AppActionsService. */
 @Component({
   selector: 'app-category-manager',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, MatDialogModule, MatButtonModule, MatFormFieldModule, MatIconModule, MatInputModule, MatTooltipModule],
   template: `
-    <div class="category-manager glass-panel">
-      <div class="header">
-        <h3><i class="fa-solid fa-tags"></i> Categories</h3>
-        <div class="actions">
-            <button (click)="importFromExpenses()" class="icon-btn-header" title="Import from Spendings" [disabled]="isImporting">
-                <i class="fa-solid fa-cloud-arrow-down" [class.fa-bounce]="isImporting"></i>
-            </button>
-            <button (click)="startAdd('root')" class="add-btn" *ngIf="!addingTo">
-                <i class="fa-solid fa-plus"></i> New
-            </button>
-        </div>
+    <div class="panel-head">
+      <h2 mat-dialog-title>Categories</h2>
+      <div class="head-actions">
+        <button
+          mat-icon-button
+          (click)="importFromExpenses()"
+          [disabled]="isImporting"
+          matTooltip="Import categories from Spending"
+          aria-label="Import categories from Spending">
+          <mat-icon>cloud_download</mat-icon>
+        </button>
+        <button mat-stroked-button (click)="startAdd('root')" *ngIf="!addingTo">
+          <mat-icon>add</mat-icon> New
+        </button>
+        <button mat-icon-button mat-dialog-close aria-label="Close categories">
+          <mat-icon>close</mat-icon>
+        </button>
       </div>
-
-      <!-- Add Form -->
-      <div class="add-form" *ngIf="addingTo">
-        <div class="input-group">
-            <span class="prefix" *ngIf="addingTo !== 'root'">Sub-category of {{ getParentName(addingTo) }}</span>
-            <input 
-                [(ngModel)]="newCategoryName" 
-                placeholder="Category Name" 
-                (keyup.enter)="addCategory()"
-                class="glass-input"
-                autoFocus
-            >
-        </div>
-        <div class="form-actions">
-            <button (click)="addCategory()" class="save-btn" [disabled]="!newCategoryName.trim()">
-                <i class="fa-solid fa-check"></i>
-            </button>
-            <button (click)="cancelAdd()" class="cancel-btn">
-                <i class="fa-solid fa-xmark"></i>
-            </button>
-        </div>
-      </div>
-
-      <!-- Tree View -->
-      <div class="tree-container">
-        <ng-container *ngTemplateOutlet="nodeTemplate; context: { $implicit: categories$ | async }"></ng-container>
-      </div>
-
-      <ng-template #nodeTemplate let-nodes>
-        <div *ngFor="let node of nodes" class="node">
-          <div class="node-content">
-            <span class="name">{{ node.name }}</span>
-            <div class="node-actions">
-                <button class="icon-btn" (click)="startAdd(node.id)" title="Add Sub-category">
-                <i class="fa-solid fa-plus"></i>
-                </button>
-                <button class="icon-btn edit-btn" (click)="onEdit(node)" title="Rename">
-                <i class="fa-solid fa-pen"></i>
-                </button>
-                <button class="icon-btn delete-btn" (click)="onDelete(node)" title="Delete">
-                <i class="fa-solid fa-trash"></i>
-                </button>
-            </div>
-          </div>
-          
-          <div class="children" *ngIf="node.children.length > 0">
-            <ng-container *ngTemplateOutlet="nodeTemplate; context: { $implicit: node.children }"></ng-container>
-          </div>
-        </div>
-      </ng-template>
     </div>
+
+    <div class="add-form" *ngIf="addingTo">
+      <div class="prefix" *ngIf="addingTo !== 'root'">Sub-category of {{ getParentName(addingTo) }}</div>
+      <mat-form-field appearance="outline" class="name-field" subscriptSizing="dynamic">
+        <mat-label>Category name</mat-label>
+        <input matInput [(ngModel)]="newCategoryName" (keyup.enter)="addCategory()" (keyup.escape)="cancelAdd()" cdkFocusInitial>
+      </mat-form-field>
+      <button mat-flat-button color="primary" (click)="addCategory()" [disabled]="!newCategoryName.trim()">Add</button>
+      <button mat-button (click)="cancelAdd()">Cancel</button>
+    </div>
+
+    <div class="tree" *ngIf="categories$ | async as categories">
+      <div class="empty" *ngIf="categories.length === 0">No categories yet. Add one to get started.</div>
+      <ng-container *ngTemplateOutlet="nodeTemplate; context: { $implicit: categories }"></ng-container>
+    </div>
+
+    <ng-template #nodeTemplate let-nodes>
+      <div *ngFor="let node of nodes" class="node">
+        <div class="node-row">
+          <span class="name">{{ node.name }}</span>
+          <span class="node-actions">
+            <button mat-icon-button (click)="startAdd(node.id)" matTooltip="Add sub-category" [attr.aria-label]="'Add sub-category to ' + node.name">
+              <mat-icon>add</mat-icon>
+            </button>
+            <button mat-icon-button (click)="onEdit(node)" matTooltip="Rename" [attr.aria-label]="'Rename ' + node.name">
+              <mat-icon>edit</mat-icon>
+            </button>
+            <button mat-icon-button (click)="onDelete(node)" matTooltip="Delete" [attr.aria-label]="'Delete ' + node.name">
+              <mat-icon>delete_outline</mat-icon>
+            </button>
+          </span>
+        </div>
+        <div class="children" *ngIf="node.children.length > 0">
+          <ng-container *ngTemplateOutlet="nodeTemplate; context: { $implicit: node.children }"></ng-container>
+        </div>
+      </div>
+    </ng-template>
   `,
   styles: [`
-    .glass-panel {
-        background: rgba(255, 255, 255, 0.05);
-        backdrop-filter: blur(10px);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 20px;
-        padding: 20px;
-        color: white;
-        height: 100%;
-        display: flex;
-        flex-direction: column;
+    :host { display: flex; flex-direction: column; height: 100%; padding: 16px 20px; }
+    .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .panel-head h2 { padding: 0; margin: 0; }
+    .head-actions { display: flex; align-items: center; gap: 8px; }
+    .add-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0; padding: 12px; border-radius: 12px; background: var(--surface-2); }
+    .prefix { width: 100%; font-size: 0.8rem; color: var(--text-secondary); }
+    .name-field { flex: 1; min-width: 160px; }
+    .tree { flex: 1; overflow-y: auto; margin-top: 8px; }
+    .empty { color: var(--text-muted); font-style: italic; padding: 24px 0; text-align: center; }
+    .node { margin-bottom: 4px; }
+    .node-row {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      padding: 4px 8px 4px 12px; border-radius: 10px; background: var(--surface-2);
     }
-    .header {
-        display: flex; justify-content: space-between; align-items: center;
-        margin-bottom: 20px;
-    }
-    .header h3 { margin: 0; font-size: 1.2rem; display: flex; align-items: center; gap: 10px; }
-    .actions { display: flex; gap: 10px; align-items: center; }
-    
-    .add-btn {
-        background: var(--accent-primary); color: white; border: none;
-        padding: 5px 12px; border-radius: 8px; cursor: pointer; font-size: 0.8rem;
-    }
-    .icon-btn-header {
-        background: rgba(255,255,255,0.1); border: none; color: var(--text-secondary);
-        width: 30px; height: 30px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center;
-        transition: all 0.2s;
-    }
-    .icon-btn-header:hover { background: rgba(255,255,255,0.2); color: white; }
-    .icon-btn-header:disabled { opacity: 0.5; cursor: wait; }
-
-    .tree-container { overflow-y: auto; flex: 1; }
-    
-    .node { margin-bottom: 5px; }
-    .node-content {
-        display: flex; justify-content: space-between; align-items: center;
-        padding: 8px 12px; background: rgba(255,255,255,0.03);
-        border-radius: 8px; transition: background 0.2s;
-    }
-    .node-content:hover { background: rgba(255,255,255,0.08); }
-    
-    .node-actions { display: flex; gap: 5px; opacity: 0; transition: opacity 0.2s; }
-    .node-content:hover .node-actions { opacity: 1; }
-
-    .icon-btn {
-        background: none; border: none; color: var(--text-secondary);
-        cursor: pointer; padding: 4px; border-radius: 4px; transition: all 0.2s;
-    }
-    .icon-btn:hover { color: var(--accent-secondary); background: rgba(255,255,255,0.1); }
-    .delete-btn:hover { color: var(--accent-danger); }
-
-    .children { margin-left: 20px; border-left: 1px solid rgba(255,255,255,0.1); padding-left: 10px; margin-top: 5px; }
-
-    .add-form {
-        background: rgba(0,0,0,0.2); padding: 10px; border-radius: 10px; margin-bottom: 15px;
-        display: flex; gap: 10px; align-items: center;
-    }
-    .input-group { flex: 1; display: flex; flex-direction: column; gap: 5px; }
-    .prefix { font-size: 0.7rem; color: var(--text-secondary); }
-    .glass-input {
-        background: transparent; border: none; color: white;
-        border-bottom: 1px solid var(--glass-border); padding: 5px; outline: none; width: 100%;
-    }
-    .form-actions { display: flex; gap: 5px; }
-    .save-btn, .cancel-btn {
-        width: 30px; height: 30px; border-radius: 50%; border: none;
-        display: flex; align-items: center; justify-content: center; cursor: pointer;
-    }
-    .save-btn { background: #4ade80; color: #1a1a2e; }
-    .cancel-btn { background: #ef4444; color: white; }
-    .save-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .node-row:hover { filter: brightness(1.05); }
+    .node-actions { display: flex; opacity: 0.6; transition: opacity 0.15s; }
+    .node-row:hover .node-actions, .node-row:focus-within .node-actions { opacity: 1; }
+    .children { margin-left: 16px; border-left: 1px solid var(--glass-border); padding-left: 10px; margin-top: 4px; }
   `]
 })
-export class CategoryManagerComponent implements OnInit {
+export class CategoryManagerComponent {
   categories$ = this.categoryService.categories$;
 
   addingTo: string | null = null;
   newCategoryName = '';
   isImporting = false;
 
-  constructor(private categoryService: CategoryService) { }
-
-  ngOnInit() { }
+  constructor(
+    public dialogRef: MatDialogRef<CategoryManagerComponent>,
+    private categoryService: CategoryService,
+    private notify: NotifyService
+  ) { }
 
   startAdd(parentId: string) {
     this.addingTo = parentId;
@@ -167,7 +119,7 @@ export class CategoryManagerComponent implements OnInit {
   }
 
   getParentName(id: string): string {
-    return "Parent";
+    return this.findName(this.categoryService.snapshot(), id) ?? '';
   }
 
   async addCategory() {
@@ -179,18 +131,26 @@ export class CategoryManagerComponent implements OnInit {
   }
 
   async onEdit(node: CategoryNode) {
-    const newName = prompt('Enter new category name:', node.name);
+    const newName = await firstValueFrom(this.notify.prompt({
+      title: 'Rename category',
+      label: 'Category name',
+      value: node.name
+    }));
     if (newName && newName.trim() && newName !== node.name) {
       await this.categoryService.updateCategory(node.id, newName.trim());
     }
   }
 
   async onDelete(node: CategoryNode) {
-    if (confirm(`Are you sure you want to delete category "${node.name}"?`)) {
-      const success = await this.categoryService.deleteCategory(node.id);
-      if (!success) {
-        // Alert handled in service
-      }
+    const confirmed = await firstValueFrom(this.notify.confirm({
+      title: 'Delete category',
+      message: `Are you sure you want to delete category "${node.name}"?`,
+      confirmText: 'Delete',
+      danger: true
+    }));
+    if (confirmed) {
+      // The service reports blocked deletes (used by expenses, has sub-categories) itself
+      await this.categoryService.deleteCategory(node.id);
     }
   }
 
@@ -199,14 +159,23 @@ export class CategoryManagerComponent implements OnInit {
     try {
       const count = await this.categoryService.importFromExpenses();
       if (count > 0) {
-        alert(`Successfully imported ${count} new categories!`);
+        this.notify.info(`Successfully imported ${count} new categories!`);
       } else {
-        alert('No new categories found to import.');
+        this.notify.info('No new categories found to import.');
       }
     } catch (error) {
-      alert('Failed to import categories.');
+      this.notify.error('Failed to import categories.');
     } finally {
       this.isImporting = false;
     }
+  }
+
+  private findName(nodes: CategoryNode[], id: string): string | null {
+    for (const node of nodes) {
+      if (node.id === id) return node.name;
+      const found = this.findName(node.children, id);
+      if (found) return found;
+    }
+    return null;
   }
 }

@@ -1,78 +1,121 @@
-import { Component, AfterViewInit, ElementRef, ViewChild } from '@angular/core';
+import { Component, ElementRef, OnDestroy, OnInit, ViewChild, AfterViewInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { AnalyticsService, AnalyticsResult } from '../../services/analytics.service';
+import { combineLatest, Subscription } from 'rxjs';
 import Chart from 'chart.js/auto';
+import { AnalyticsService, AnalyticsResult } from '../../services/analytics.service';
+import { SettingsService } from '../../services/settings.service';
+import { ThemeService } from '../../services/theme.service';
 
+const PALETTE = ['#ff9f1c', '#4cc9f0', '#f72585', '#7209b7', '#4ade80', '#fbbf24', '#ef4444', '#a855f7'];
+
+interface LegendItem {
+  name: string;
+  amount: number;
+  percent: number;
+  color: string;
+}
+
+/** Doughnut of spending by category, with an accessible legend. Rendered in the expenses side panel. */
 @Component({
   selector: 'app-chart',
   standalone: true,
   imports: [CommonModule],
   template: `
-    <section class="glass-card chart-section">
-        <div class="section-header">
-            <h2>Spending Breakdown</h2>
-        </div>
-        <div class="chart-container" style="position: relative; height: 200px;">
-            <canvas #chartCanvas></canvas>
-        </div>
-    </section>
+    <div class="chart-head">
+      <h2>Spending by category</h2>
+      <span class="lm-muted">{{ total | currency:((currency$ | async) || 'USD') }}</span>
+    </div>
+
+    <div class="chart-wrap" [hidden]="legend.length === 0">
+      <canvas #chartCanvas role="img" aria-label="Doughnut chart of spending by category"></canvas>
+    </div>
+
+    <ul class="legend" *ngIf="legend.length > 0; else noData">
+      <li *ngFor="let item of legend">
+        <span class="swatch" [style.background]="item.color" aria-hidden="true"></span>
+        <span class="name">{{ item.name }}</span>
+        <span class="pct lm-muted">{{ item.percent | number:'1.0-0' }}%</span>
+        <span class="lm-amount">{{ item.amount | currency:((currency$ | async) || 'USD') }}</span>
+      </li>
+    </ul>
+
+    <ng-template #noData>
+      <div class="lm-empty">No spending to show for these filters.</div>
+    </ng-template>
   `,
   styles: [`
-    .glass-card {
-        background: var(--glass-bg);
-        backdrop-filter: blur(16px);
-        -webkit-backdrop-filter: blur(16px);
-        border: 1px solid var(--glass-border);
-        border-radius: 24px;
-        padding: 20px;
-        margin-bottom: 20px;
-        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-    }
-    .section-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 20px;
-    }
-    .section-header h2 { font-size: 1.2rem; font-weight: 600; }
+    :host { display: block; }
+    .chart-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 12px; }
+    .chart-head h2 { font-size: 1.05rem; font-weight: 600; margin: 0; }
+    .chart-wrap { position: relative; height: 240px; margin-bottom: 12px; }
+    .legend { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; max-height: 260px; overflow-y: auto; }
+    .legend li { display: grid; grid-template-columns: 12px 1fr auto auto; align-items: center; gap: 8px; font-size: 0.875rem; }
+    .swatch { width: 12px; height: 12px; border-radius: 3px; }
+    .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   `]
 })
-export class ChartComponent implements AfterViewInit {
-  @ViewChild('chartCanvas') chartCanvas!: ElementRef;
-  chart: any;
+export class ChartComponent implements OnInit, AfterViewInit, OnDestroy {
+  @ViewChild('chartCanvas') chartCanvas!: ElementRef<HTMLCanvasElement>;
 
-  constructor(private analyticsService: AnalyticsService) { }
+  legend: LegendItem[] = [];
+  total = 0;
+  currency$ = this.settingsService.currency$;
 
-  ngAfterViewInit() {
-    this.analyticsService.result$.subscribe((result) => {
-      this.renderChart(result.categoryDistribution);
+  private chart: Chart | null = null;
+  private viewReady = false;
+  private latest: AnalyticsResult | null = null;
+  private sub?: Subscription;
+
+  constructor(
+    private analyticsService: AnalyticsService,
+    private settingsService: SettingsService,
+    private themeService: ThemeService
+  ) { }
+
+  ngOnInit() {
+    // Data for the template is computed here, before the view is checked
+    this.sub = combineLatest([this.analyticsService.result$, this.themeService.mode$]).subscribe(([result]) => {
+      this.latest = result;
+      this.total = result.total;
+      this.legend = this.buildLegend(result);
+      if (this.viewReady) this.draw();
     });
   }
 
-  renderChart(distribution: { [key: string]: number }) {
-    if (!this.chartCanvas) return;
+  ngAfterViewInit() {
+    this.viewReady = true;
+    this.draw();
+  }
 
-    const ctx = this.chartCanvas.nativeElement.getContext('2d');
-    const labels = Object.keys(distribution);
-    const data = Object.values(distribution);
+  ngOnDestroy() {
+    this.sub?.unsubscribe();
+    this.chart?.destroy();
+  }
 
-    // Dynamic colors (could be improved with a palette generator)
-    const colors = [
-      '#ff9f1c', '#4cc9f0', '#f72585', '#7209b7', '#4ade80', '#fbbf24', '#ef4444', '#a855f7'
-    ];
-    const bgColors = labels.map((_, i) => colors[i % colors.length]);
+  private buildLegend(result: AnalyticsResult): LegendItem[] {
+    return Object.keys(result.categoryDistribution).map((name, i) => {
+      const amount = result.categoryDistribution[name];
+      return {
+        name,
+        amount,
+        percent: result.total > 0 ? (amount / result.total) * 100 : 0,
+        color: PALETTE[i % PALETTE.length]
+      };
+    });
+  }
 
-    if (this.chart) {
-      this.chart.destroy();
-    }
+  private draw() {
+    this.chart?.destroy();
+    this.chart = null;
+    if (!this.latest || this.legend.length === 0) return;
 
-    this.chart = new Chart(ctx, {
+    this.chart = new Chart(this.chartCanvas.nativeElement, {
       type: 'doughnut',
       data: {
-        labels: labels,
+        labels: this.legend.map(item => item.name),
         datasets: [{
-          data: data,
-          backgroundColor: bgColors,
+          data: this.legend.map(item => item.amount),
+          backgroundColor: this.legend.map(item => item.color),
           borderWidth: 0,
           hoverOffset: 4
         }]
@@ -80,12 +123,12 @@ export class ChartComponent implements AfterViewInit {
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        cutout: '62%',
         plugins: {
-          legend: {
-            position: 'right',
-            labels: {
-              color: 'rgba(255, 255, 255, 0.7)',
-              font: { family: "'Outfit', sans-serif" }
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: ctx => `${ctx.label}: ${Number(ctx.parsed).toFixed(2)}`
             }
           }
         }

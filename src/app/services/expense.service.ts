@@ -2,6 +2,8 @@ import { Injectable } from '@angular/core';
 import { BehaviorSubject } from 'rxjs';
 import { SheetsService } from './sheets.service';
 import { GoogleApiService } from './google-api.service';
+import { todayLocalISODate } from '../utils/date.util';
+import { NotifyService } from '../shared/notify/notify.service';
 
 export interface Expense {
   id: number;
@@ -22,7 +24,8 @@ export class ExpenseService {
 
   constructor(
     private sheetsService: SheetsService,
-    private googleApi: GoogleApiService
+    private googleApi: GoogleApiService,
+    private notify: NotifyService
   ) {
     this.googleApi.user$.subscribe(user => {
       this.isGoogleAuthenticated = !!user;
@@ -57,7 +60,7 @@ export class ExpenseService {
       } catch (error) {
         console.error('Failed to save to Sheets', error);
         this.expensesSubject.next(currentExpenses); // Revert
-        alert('Failed to save to Google Sheets');
+        this.notify.error('Failed to save to Google Sheets');
       }
     } else {
       this.saveToLocalStorage(updatedExpenses);
@@ -79,7 +82,7 @@ export class ExpenseService {
         } catch (error) {
           console.error('Failed to update in Sheets', error);
           this.expensesSubject.next(currentExpenses); // Revert
-          alert('Failed to update in Google Sheets');
+          this.notify.error('Failed to update in Google Sheets');
         }
       } else {
         this.saveToLocalStorage(updatedExpenses);
@@ -98,7 +101,7 @@ export class ExpenseService {
       } catch (error) {
         console.error('Failed to delete from Sheets', error);
         this.expensesSubject.next(currentExpenses); // Revert
-        alert('Failed to delete from Google Sheets');
+        this.notify.error('Failed to delete from Google Sheets');
       }
     } else {
       this.saveToLocalStorage(updatedExpenses);
@@ -110,21 +113,21 @@ export class ExpenseService {
   }
 
   getDailyTotal(): number {
-    const today = new Date().toISOString().split('T')[0];
+    const today = todayLocalISODate();
     return this.expensesSubject.value
       .filter(e => e.date.startsWith(today))
       .reduce((sum, e) => sum + e.amount, 0);
   }
 
   getMonthlyTotal(): number {
-    const currentMonth = new Date().toISOString().slice(0, 7);
+    const currentMonth = todayLocalISODate().slice(0, 7);
     return this.expensesSubject.value
       .filter(e => e.date.startsWith(currentMonth))
       .reduce((sum, e) => sum + e.amount, 0);
   }
 
   getCategoryTotals(): { [key: string]: number } {
-    const currentMonth = new Date().toISOString().slice(0, 7);
+    const currentMonth = todayLocalISODate().slice(0, 7);
     const totals: { [key: string]: number } = {};
 
     this.expensesSubject.value
